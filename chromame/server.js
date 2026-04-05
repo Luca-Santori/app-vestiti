@@ -23,18 +23,34 @@ async function uploadImage(buffer, mime, filename) {
 }
 
 async function submitPrediction(personPath, garmentPath, description) {
+  const personFileData = {
+    path: personPath,
+    meta: { _type: 'gradio.FileData' },
+    orig_name: 'person.jpg',
+    url: `${SPACE_URL}/file=${personPath}`
+  };
+  const garmentFileData = {
+    path: garmentPath,
+    meta: { _type: 'gradio.FileData' },
+    orig_name: 'garment.jpg',
+    url: `${SPACE_URL}/file=${garmentPath}`
+  };
+
   const resp = await fetch(`${SPACE_URL}/call/tryon`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       data: [
-        { path: personPath },  // human_img
-        { path: garmentPath }, // garm_img
-        description,           // garment_des
-        true,                  // is_checked (auto-masking)
-        false,                 // is_checked_crop
-        30,                    // denoise_steps
-        42                     // seed
+        // param 1: ImageEditor → { background, layers, composite }
+        { background: personFileData, layers: [], composite: null },
+        // param 2: garment image (FileData)
+        garmentFileData,
+        // param 3-7: testo + flags + steps + seed
+        description,
+        true,   // is_checked (auto-mask)
+        false,  // is_checked_crop
+        30,     // denoise_steps
+        42      // seed
       ]
     })
   });
