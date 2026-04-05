@@ -193,18 +193,22 @@ app.post('/api/remove-bg',
       const mime = req.file.mimetype || 'image/jpeg';
 
       console.log('\n→ Rimozione sfondo accessorio...');
+      // Gradio 5.x: upload endpoint è /gradio_api/upload
       const fd = new FormData();
       fd.append('files', new File([buf], 'garment.jpg', { type: mime }));
-      const upResp = await fetch(`${RMBG_SPACE}/upload`, { method: 'POST', body: fd });
+      const upResp = await fetch(`${RMBG_SPACE}/gradio_api/upload`, { method: 'POST', body: fd });
       if (!upResp.ok) throw new Error('Upload fallito: ' + upResp.status);
-      const [path] = await upResp.json();
+      const upJson = await upResp.json();
+      // Gradio 5.x può restituire [{path:...}] oppure [{url:...}]
+      const uploaded = Array.isArray(upJson) ? upJson[0] : upJson;
+      const path = uploaded?.path ?? uploaded?.url ?? uploaded;
 
       const callResp = await fetch(`${RMBG_SPACE}/gradio_api/call/image`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: [{ path, meta: { _type: 'gradio.FileData' } }] })
+        body: JSON.stringify({ data: [{ path, meta: { _type: 'gradio.FileData' }, orig_name: 'garment.jpg' }] })
       });
-      if (!callResp.ok) throw new Error('Call fallita: ' + callResp.status);
+      if (!callResp.ok) throw new Error('Call fallita: ' + callResp.status + ' ' + await callResp.text());
       const { event_id } = await callResp.json();
 
       const resultUrl = await waitForGradio5(RMBG_SPACE, 'image', event_id);
@@ -244,8 +248,8 @@ app.post('/api/tryon',
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           if (attempt > 1) {
-            console.log(`  Tentativo ${attempt}/3 tra 5 sec...`);
-            await new Promise(r => setTimeout(r, 5000));
+            console.log(`  Tentativo ${attempt}/3 tra 15 sec...`);
+            await new Promise(r => setTimeout(r, 15000));
           }
           console.log(`  [1/3] Upload immagini su HuggingFace... (tentativo ${attempt})`);
           const [personPath, garmentPath] = await Promise.all([
