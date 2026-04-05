@@ -2,7 +2,7 @@
    MODULE 3 — VIRTUAL TRY-ON
    ══════════════════════════════════════════════════════ */
 
-import { rgbToHsl, hslToRgb } from '../utils/color.js';
+import { rgbToHsl, hslToRgb, escHtml } from '../utils/color.js';
 import { initProgress, setStep, setLog, wait } from '../ui/progress.js';
 import { STATE, TRYON_WIDTH, TRYON_HEIGHT, BG_REMOVAL_THRESHOLD, SHARPENING_STRENGTH, SAT_BOOST } from '../config.js';
 
@@ -215,7 +215,7 @@ export async function runTryon() {
   metricsGrid.innerHTML = `
     <div class="card">
       <p class="text-xs text-muted mb-8">Blend mode</p>
-      <div style="font-size:18px;font-weight:500;">${blendMode}</div>
+      <div style="font-size:18px;font-weight:500;">${escHtml(blendMode)}</div>
     </div>
     <div class="card">
       <p class="text-xs text-muted mb-8">Opacità applicata</p>

@@ -2,13 +2,12 @@
    MODULE 1 — ARMOCROMIA
    ══════════════════════════════════════════════════════ */
 
-import { hexToRgb, rgbToLab, rgbToHex, fitzpatrick } from '../utils/color.js';
+import { hexToRgb, rgbToLab, rgbToHex, fitzpatrick, deltaECIE2000, escHtml } from '../utils/color.js';
 import { drawEllipse, sampleEllipse } from '../utils/image.js';
 import { SEASONS } from '../data/seasons.js';
 import { initProgress, setStep, setLog, wait } from '../ui/progress.js';
 import { ensureFaceApi } from '../faceApi.js';
 import { FACE_SCORE_THRESHOLD } from '../config.js';
-import { deltaECIE2000 } from '../utils/color.js';
 
 /**
  * Map undertone + skin L* + hair contrast to a 12-season.
@@ -213,7 +212,7 @@ export async function runArmocromia() {
           <tr><td>b* (giallo-blu)</td><td>${skinLab.b.toFixed(1)}</td></tr>
           <tr><td>Fitzpatrick</td><td>Tipo ${fitz}</td></tr>
           <tr><td>Delta-E (capo)</td><td>${minDelta.toFixed(1)} — ${deltaLabel}</td></tr>
-          <tr><td>Colore capo</td><td>${garmentHex}</td></tr>
+          <tr><td>Colore capo</td><td>${escHtml(garmentHex)}</td></tr>
         </table>
       </div>
       <div class="tip-card full-width">

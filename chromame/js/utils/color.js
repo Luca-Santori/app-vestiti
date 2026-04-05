@@ -231,3 +231,17 @@ export function textColorFor(hex) {
   const {r,g,b} = hexToRgb(hex);
   return getLuminance(r,g,b) > 140 ? '#2C2420' : '#FAF7F2';
 }
+
+/**
+ * Escape HTML special characters to prevent XSS when inserting into innerHTML.
+ * @param {string} str
+ * @returns {string}
+ */
+export function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
