@@ -3,12 +3,9 @@
    Full sRGB → CIE LAB + Delta-E CIE2000
    ═══════════════════════════════════════════════════════ */
 
-/**
- * Convert HEX string to RGB object.
- * @param {string} hex - e.g. "#3A5A8C"
- * @returns {{r:number,g:number,b:number}}
- */
-export function hexToRgb(hex) {
+(function() {
+
+function hexToRgb(hex) {
   hex = hex.replace('#', '');
   if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
   return {
@@ -25,7 +22,7 @@ export function hexToRgb(hex) {
  * @param {number} b
  * @returns {string}
  */
-export function rgbToHex(r, g, b) {
+function rgbToHex(r, g, b) {
   const clamp = v => Math.max(0, Math.min(255, Math.round(v)));
   return '#' + [r, g, b].map(v => clamp(v).toString(16).padStart(2, '0')).join('');
 }
@@ -37,7 +34,7 @@ export function rgbToHex(r, g, b) {
  * @param {number} b 0-255
  * @returns {{h:number,s:number,l:number}} h 0-360, s/l 0-100
  */
-export function rgbToHsl(r, g, b) {
+function rgbToHsl(r, g, b) {
   r /= 255; g /= 255; b /= 255;
   const max = Math.max(r, g, b), min = Math.min(r, g, b);
   let h, s, l = (max + min) / 2;
@@ -62,7 +59,7 @@ export function rgbToHsl(r, g, b) {
  * @param {number} l 0-100
  * @returns {{r:number,g:number,b:number}}
  */
-export function hslToRgb(h, s, l) {
+function hslToRgb(h, s, l) {
   h /= 360; s /= 100; l /= 100;
   let r, g, b;
   if (s === 0) {
@@ -92,7 +89,7 @@ export function hslToRgb(h, s, l) {
  * @param {number} b 0-255
  * @returns {{L:number,a:number,b:number}}
  */
-export function rgbToLab(r, g, b) {
+function rgbToLab(r, g, b) {
   // Step 1: sRGB linearization (IEC 61966-2-1)
   let rr = r / 255, gg = g / 255, bb = b / 255;
   rr = rr > 0.04045 ? Math.pow((rr + 0.055) / 1.055, 2.4) : rr / 12.92;
@@ -122,7 +119,7 @@ export function rgbToLab(r, g, b) {
  * @param {{L:number,a:number,b:number}} lab2
  * @returns {number}
  */
-export function deltaECIE2000(lab1, lab2) {
+function deltaECIE2000(lab1, lab2) {
   const { L: L1, a: a1, b: b1 } = lab1;
   const { L: L2, a: a2, b: b2 } = lab2;
   const kL = 1, kC = 1, kH = 1;
@@ -204,7 +201,7 @@ export function deltaECIE2000(lab1, lab2) {
  * @param {number} b
  * @returns {number}
  */
-export function getLuminance(r, g, b) {
+function getLuminance(r, g, b) {
   return 0.299 * r + 0.587 * g + 0.114 * b;
 }
 
@@ -213,7 +210,7 @@ export function getLuminance(r, g, b) {
  * @param {number} L
  * @returns {string}
  */
-export function fitzpatrick(L) {
+function fitzpatrick(L) {
   if (L > 80) return 'I';
   if (L > 70) return 'II';
   if (L > 58) return 'III';
@@ -227,7 +224,20 @@ export function fitzpatrick(L) {
  * @param {string} hex
  * @returns {string}
  */
-export function textColorFor(hex) {
+function textColorFor(hex) {
   const { r, g, b } = hexToRgb(hex);
   return getLuminance(r, g, b) > 140 ? '#2C2420' : '#FAF7F2';
 }
+
+// Expose on global namespace
+CM.hexToRgb = hexToRgb;
+CM.rgbToHex = rgbToHex;
+CM.rgbToHsl = rgbToHsl;
+CM.hslToRgb = hslToRgb;
+CM.rgbToLab = rgbToLab;
+CM.deltaECIE2000 = deltaECIE2000;
+CM.getLuminance = getLuminance;
+CM.fitzpatrick = fitzpatrick;
+CM.textColorFor = textColorFor;
+
+})();

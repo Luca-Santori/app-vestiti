@@ -3,9 +3,13 @@
    Composizione persona + capo con effetti di blending
    ═══════════════════════════════════════════════════════ */
 
-import { TRYON_WIDTH, TRYON_HEIGHT, BG_REMOVAL_THRESHOLD, SHARPENING_STRENGTH, SAT_BOOST } from './constants.js';
-import { rgbToHsl, hslToRgb } from './colormath.js';
-import { STATE, initProgress, setStep, setLog, wait } from './utils.js';
+(function() {
+
+var TRYON_WIDTH = CM.TRYON_WIDTH, TRYON_HEIGHT = CM.TRYON_HEIGHT;
+var BG_REMOVAL_THRESHOLD = CM.BG_REMOVAL_THRESHOLD;
+var SHARPENING_STRENGTH = CM.SHARPENING_STRENGTH, SAT_BOOST = CM.SAT_BOOST;
+var rgbToHsl = CM.rgbToHsl, hslToRgb = CM.hslToRgb;
+var initProgress = CM.initProgress, setStep = CM.setStep, setLog = CM.setLog, wait = CM.wait;
 
 /**
  * Remove background from garment image data (in-place).
@@ -112,7 +116,8 @@ function boostSaturation(data, boost) {
 /**
  * Full try-on pipeline (5 steps).
  */
-export async function runTryon() {
+async function runTryon() {
+  var STATE = CM.STATE;
   const opacityVal = parseInt(document.getElementById('tryon-opacity').value) / 100;
   const contrastVal = parseInt(document.getElementById('tryon-contrast').value) / 100;
   const blendMode = document.getElementById('tryon-blend').value;
@@ -250,3 +255,7 @@ function renderTryonResults(resultCanvas, blendMode, opacityVal) {
 
   el.classList.add('visible');
 }
+
+CM.runTryon = runTryon;
+
+})();

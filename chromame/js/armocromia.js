@@ -3,10 +3,7 @@
    Upload foto + colore capo → analisi stagione cromatica
    ═══════════════════════════════════════════════════════ */
 
-import { FACE_SCORE_THRESHOLD, SEASONS } from './constants.js';
-import { hexToRgb, rgbToHex, rgbToLab, deltaECIE2000, fitzpatrick } from './colormath.js';
-import { sampleEllipse, drawEllipse, initProgress, setStep, setLog, wait } from './utils.js';
-import { ensureFaceApi } from './faceapi.js';
+(function() {
 
 /**
  * Map undertone + skin L* + hair contrast to a 12-season (simplified for armocromia tab).
@@ -38,7 +35,14 @@ function mapSeasonSimple(undertone, skinL, deltaL) {
 /**
  * Full armocromia analysis pipeline (6 steps).
  */
-export async function runArmocromia() {
+async function runArmocromia() {
+  var FACE_SCORE_THRESHOLD = CM.FACE_SCORE_THRESHOLD;
+  var SEASONS = CM.SEASONS;
+  var hexToRgb = CM.hexToRgb, rgbToHex = CM.rgbToHex, rgbToLab = CM.rgbToLab;
+  var deltaECIE2000 = CM.deltaECIE2000, fitzpatrick = CM.fitzpatrick;
+  var sampleEllipse = CM.sampleEllipse, drawEllipse = CM.drawEllipse;
+  var initProgress = CM.initProgress, setStep = CM.setStep, setLog = CM.setLog, wait = CM.wait;
+  var ensureFaceApi = CM.ensureFaceApi;
   const canvas = document.getElementById('armo-canvas');
   const ctx = canvas.getContext('2d');
   const w = canvas.width, h = canvas.height;
@@ -156,8 +160,8 @@ export async function runArmocromia() {
  * Render armocromia results into DOM.
  */
 function renderArmocromiaResults(skin, skinLab, undertoneLabel, season, seasonData, minDelta, deltaLabel, garmentHex) {
-  const fitz = fitzpatrick(skinLab.L);
-  const skinHex = rgbToHex(skin.r, skin.g, skin.b);
+  var fitz = CM.fitzpatrick(skinLab.L);
+  var skinHex = CM.rgbToHex(skin.r, skin.g, skin.b);
 
   const circumference = 175.9;
   const deltaPercent = Math.min(minDelta / 50, 1);
@@ -231,3 +235,7 @@ function renderArmocromiaResults(skin, skinLab, undertoneLabel, season, seasonDa
   `;
   el.classList.add('visible');
 }
+
+CM.runArmocromia = runArmocromia;
+
+})();

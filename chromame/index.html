@@ -168,7 +168,14 @@
   <div class="results-section" id="tryon-results"></div>
 </div>
 
-<!-- Entry point -->
-<script type="module" src="js/app.js"></script>
+<!-- Scripts (ordine di dipendenza, no ES modules per compatibilità file://) -->
+<script src="js/constants.js"></script>
+<script src="js/colormath.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/faceapi.js"></script>
+<script src="js/armocromia.js"></script>
+<script src="js/analisi.js"></script>
+<script src="js/tryon.js"></script>
+<script src="js/app.js"></script>
 </body>
 </html>

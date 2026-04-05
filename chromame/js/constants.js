@@ -2,20 +2,30 @@
    ChromaMe — Costanti e Dati Stagioni
    ═══════════════════════════════════════════════════════ */
 
-export const MAX_IMG_WIDTH = 800;
-export const FACE_SCORE_THRESHOLD = 0.4;
-export const TRYON_WIDTH = 600;
-export const TRYON_HEIGHT = 750;
-export const BG_REMOVAL_THRESHOLD = 40;
-export const SHARPENING_STRENGTH = 0.3;
-export const SAT_BOOST = 0.10;
-export const FACE_API_MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
+var CM = window.CM = window.CM || {};
+
+CM.MAX_IMG_WIDTH = 800;
+CM.FACE_SCORE_THRESHOLD = 0.4;
+CM.TRYON_WIDTH = 600;
+CM.TRYON_HEIGHT = 750;
+CM.BG_REMOVAL_THRESHOLD = 40;
+CM.SHARPENING_STRENGTH = 0.3;
+CM.SAT_BOOST = 0.10;
+CM.FACE_API_MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
+
+CM.STATE = {
+  faceModelsLoaded: false,
+  armoImage: null,
+  faceImage: null,
+  tryonPersonImage: null,
+  tryonGarmentImage: null,
+};
 
 /**
  * Dati completi per le 12 stagioni cromatiche.
  * Ogni stagione include: palette (8 hex), avoid (6 hex), desc, tip, undertones, contrast.
  */
-export const SEASONS = {
+CM.SEASONS = {
   'Light Spring': {
     palette: ['#F7D488','#FFACAC','#A8D8B9','#87CEEB','#FFB347','#E6C3C3','#C9E4CA','#F0E68C'],
     avoid:   ['#000000','#2F2F2F','#4B0082','#800000','#1C1C1C','#3D0C02'],

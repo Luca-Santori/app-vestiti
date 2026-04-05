@@ -3,9 +3,13 @@
    9 zone di campionamento → stagione + confidence
    ═══════════════════════════════════════════════════════ */
 
-import { SEASONS } from './constants.js';
-import { rgbToLab, rgbToHsl, rgbToHex, fitzpatrick, textColorFor } from './colormath.js';
-import { sampleEllipse, drawEllipse, initProgress, setStep, setLog, wait } from './utils.js';
+(function() {
+
+var SEASONS = CM.SEASONS;
+var rgbToLab = CM.rgbToLab, rgbToHsl = CM.rgbToHsl, rgbToHex = CM.rgbToHex;
+var fitzpatrick = CM.fitzpatrick, textColorFor = CM.textColorFor;
+var sampleEllipse = CM.sampleEllipse, drawEllipse = CM.drawEllipse;
+var initProgress = CM.initProgress, setStep = CM.setStep, setLog = CM.setLog, wait = CM.wait;
 
 /**
  * Hair tone classification by L*.
@@ -142,7 +146,7 @@ function sampleMultiZone(imgData, ctx, zones, opts, color) {
 /**
  * Full face analysis pipeline (8 steps).
  */
-export async function runFaceAnalysis() {
+async function runFaceAnalysis() {
   const canvas = document.getElementById('face-canvas');
   const ctx = canvas.getContext('2d');
   const w = canvas.width, h = canvas.height;
@@ -385,3 +389,7 @@ function renderFaceResults(data) {
   `;
   el.classList.add('visible');
 }
+
+CM.runFaceAnalysis = runFaceAnalysis;
+
+})();

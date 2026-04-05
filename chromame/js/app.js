@@ -3,11 +3,12 @@
    Tab switching, upload handlers, event listeners
    ═══════════════════════════════════════════════════════ */
 
-import { STATE, loadImage, drawImageScaled } from './utils.js';
-import { MAX_IMG_WIDTH } from './constants.js';
-import { runArmocromia } from './armocromia.js';
-import { runFaceAnalysis } from './analisi.js';
-import { runTryon } from './tryon.js';
+(function() {
+
+var STATE = CM.STATE;
+var loadImage = CM.loadImage;
+var drawImageScaled = CM.drawImageScaled;
+var MAX_IMG_WIDTH = CM.MAX_IMG_WIDTH;
 
 /* ── Tab Switching ──────────────────────────────────── */
 
@@ -117,7 +118,7 @@ document.getElementById('armo-btn').addEventListener('click', async () => {
   document.getElementById('armo-results').classList.remove('visible');
   document.getElementById('armo-results').innerHTML = '';
   try {
-    await runArmocromia();
+    await CM.runArmocromia();
   } catch (err) {
     const logEl = document.getElementById('armo-log');
     if (logEl) logEl.textContent = '❌ Errore durante l\'analisi: ' + err.message;
@@ -132,7 +133,7 @@ document.getElementById('face-btn').addEventListener('click', async () => {
   document.getElementById('face-results').classList.remove('visible');
   document.getElementById('face-results').innerHTML = '';
   try {
-    await runFaceAnalysis();
+    await CM.runFaceAnalysis();
   } catch (err) {
     const logEl = document.getElementById('face-log');
     if (logEl) logEl.textContent = '❌ Errore durante l\'analisi: ' + err.message;
@@ -147,7 +148,7 @@ document.getElementById('tryon-btn').addEventListener('click', async () => {
   document.getElementById('tryon-results').classList.remove('visible');
   document.getElementById('tryon-results').innerHTML = '';
   try {
-    await runTryon();
+    await CM.runTryon();
   } catch (err) {
     const logEl = document.getElementById('tryon-log');
     if (logEl) logEl.textContent = '❌ Errore durante la prova: ' + err.message;
@@ -155,3 +156,5 @@ document.getElementById('tryon-btn').addEventListener('click', async () => {
   }
   btn.disabled = false;
 });
+
+})();

@@ -2,18 +2,10 @@
    ChromaMe — Utilities (image, canvas, progress, sampling)
    ═══════════════════════════════════════════════════════ */
 
-import { MAX_IMG_WIDTH } from './constants.js';
-import { getLuminance } from './colormath.js';
+(function() {
 
 /* ── Global State ───────────────────────────────────── */
-
-export const STATE = {
-  faceModelsLoaded: false,
-  armoImage: null,
-  faceImage: null,
-  tryonPersonImage: null,
-  tryonGarmentImage: null,
-};
+// STATE is already defined in constants.js as CM.STATE
 
 /* ── Image Loading ──────────────────────────────────── */
 
@@ -22,7 +14,7 @@ export const STATE = {
  * @param {File} file
  * @returns {Promise<HTMLImageElement>}
  */
-export function loadImage(file) {
+function loadImage(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -43,7 +35,8 @@ export function loadImage(file) {
  * @param {number} [maxW=MAX_IMG_WIDTH]
  * @returns {{width:number,height:number}}
  */
-export function drawImageScaled(img, canvas, maxW = MAX_IMG_WIDTH) {
+function drawImageScaled(img, canvas, maxW) {
+  maxW = maxW || CM.MAX_IMG_WIDTH;
   let w = img.naturalWidth, h = img.naturalHeight;
   if (w > maxW) {
     const ratio = maxW / w;
@@ -67,7 +60,8 @@ export function drawImageScaled(img, canvas, maxW = MAX_IMG_WIDTH) {
  * @param {object} opts - {minAlpha, minLum, maxLum, skipLowLum}
  * @returns {{r:number,g:number,b:number,count:number}|null}
  */
-export function sampleEllipse(imgData, cx, cy, rx, ry, opts = {}) {
+function sampleEllipse(imgData, cx, cy, rx, ry, opts) {
+  opts = opts || {};
   const { minAlpha = 128, minLum = 30, maxLum = 230, skipLowLum = true } = opts;
   const { data, width } = imgData;
   const x0 = Math.max(0, Math.floor(cx - rx));
@@ -83,7 +77,7 @@ export function sampleEllipse(imgData, cx, cy, rx, ry, opts = {}) {
       const i = (py * width + px) * 4;
       const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
       if (a < minAlpha) continue;
-      const lum = getLuminance(r, g, b);
+      const lum = CM.getLuminance(r, g, b);
       if (skipLowLum && lum < minLum) continue;
       if (lum > maxLum) continue;
       sr += r; sg += g; sb += b; count++;
@@ -102,7 +96,7 @@ export function sampleEllipse(imgData, cx, cy, rx, ry, opts = {}) {
  * @param {number} ry
  * @param {string} color
  */
-export function drawEllipse(ctx, cx, cy, rx, ry, color) {
+function drawEllipse(ctx, cx, cy, rx, ry, color) {
   ctx.save();
   ctx.setLineDash([4, 4]);
   ctx.strokeStyle = color;
@@ -120,7 +114,7 @@ export function drawEllipse(ctx, cx, cy, rx, ry, color) {
  * @param {string} prefix - e.g. 'armo'
  * @param {number} totalSteps
  */
-export function initProgress(prefix, totalSteps) {
+function initProgress(prefix, totalSteps) {
   const dotsEl = document.getElementById(`${prefix}-dots`);
   dotsEl.innerHTML = '';
   for (let i = 0; i < totalSteps; i++) {
@@ -139,7 +133,7 @@ export function initProgress(prefix, totalSteps) {
  * @param {number} step - current (1-based)
  * @param {number} total
  */
-export function setStep(prefix, step, total) {
+function setStep(prefix, step, total) {
   const dots = document.getElementById(`${prefix}-dots`).children;
   for (let i = 0; i < dots.length; i++) {
     dots[i].classList.toggle('filled', i < step);
@@ -152,7 +146,7 @@ export function setStep(prefix, step, total) {
  * @param {string} prefix
  * @param {string} msg
  */
-export function setLog(prefix, msg) {
+function setLog(prefix, msg) {
   document.getElementById(`${prefix}-log`).textContent = msg;
 }
 
@@ -161,6 +155,18 @@ export function setLog(prefix, msg) {
  * @param {number} ms
  * @returns {Promise<void>}
  */
-export function wait(ms) {
-  return new Promise(r => setTimeout(r, ms));
+function wait(ms) {
+  return new Promise(function(r) { setTimeout(r, ms); });
 }
+
+// Expose on global namespace
+CM.loadImage = loadImage;
+CM.drawImageScaled = drawImageScaled;
+CM.sampleEllipse = sampleEllipse;
+CM.drawEllipse = drawEllipse;
+CM.initProgress = initProgress;
+CM.setStep = setStep;
+CM.setLog = setLog;
+CM.wait = wait;
+
+})();
