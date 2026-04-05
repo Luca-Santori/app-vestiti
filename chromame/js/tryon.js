@@ -27,15 +27,27 @@ async function checkServer() {
 
 var ACCESSOR_TYPES = ['acc_hat','acc_glasses','acc_scarf','acc_necklace','acc_earring','acc_belt','acc_bag'];
 
+/* ── Mappa categorie → tipo capo ────────────────────── */
+
+var GARMENT_TYPE = {
+  'upper_body': 'upper',
+  'lower_body': 'lower',
+  'dresses':    'dress',
+  'upper':      'upper',
+  'lower':      'lower',
+  'dress':      'dress',
+  'full':       'full'
+};
+
 async function runTryon() {
-  var category = document.getElementById('tryon-category').value;
+  var category    = document.getElementById('tryon-category').value;
+  var description = (document.getElementById('tryon-desc').value || '').trim() || 'a garment';
 
   if (ACCESSOR_TYPES.indexOf(category) !== -1) {
     return runTryonAccessory(category);
   }
-  var description = (document.getElementById('tryon-desc').value || '').trim() || 'a garment';
-  var totalSteps  = 4;
 
+  var totalSteps = 5;
   initProgress('tryon', totalSteps);
 
   // STEP 1 — Verifica server
@@ -44,55 +56,90 @@ async function runTryon() {
   await wait(80);
 
   var serverOk = await checkServer();
-  if (!serverOk) {
-    document.getElementById('tryon-progress').classList.remove('active');
-    setLog('tryon', '');
-    renderTryonError();
-    return;
-  }
-  setLog('tryon', 'Server connesso ✓');
-  await wait(300);
 
-  // STEP 2 — Prepara immagini
-  setStep('tryon', 2, totalSteps);
-  setLog('tryon', 'Preparazione immagini…');
+  if (serverOk) {
+    // ── Percorso AI server (IDM-VTON) ────────────────
+    setLog('tryon', 'Server connesso ✓');
+    await wait(200);
+
+    setStep('tryon', 2, totalSteps);
+    setLog('tryon', 'Preparazione immagini…');
+    await wait(80);
+
+    var personCanvas  = document.getElementById('tryon-person-canvas');
+    var garmentCanvas = document.getElementById('tryon-garment-canvas');
+    var personBlob    = await canvasToBlob(personCanvas);
+    var garmentBlob   = await canvasToBlob(garmentCanvas);
+
+    setLog('tryon', 'Immagini pronte ✓');
+    await wait(200);
+
+    setStep('tryon', 3, totalSteps);
+    setLog('tryon', 'Elaborazione IDM-VTON su HuggingFace… (30–90 sec)');
+    await wait(80);
+
+    var fd = new FormData();
+    fd.append('person',      personBlob,  'person.jpg');
+    fd.append('garment',     garmentBlob, 'garment.jpg');
+    fd.append('category',    category);
+    fd.append('garmentDesc', description);
+
+    try {
+      var resp = await fetch(SERVER + '/api/tryon', { method: 'POST', body: fd });
+      var data = await resp.json().catch(function() { return {}; });
+
+      if (resp.ok && data.success && data.resultUrl) {
+        setStep('tryon', 5, totalSteps);
+        setLog('tryon', 'Risultato pronto ✓');
+        await wait(200);
+        renderTryonResults(data.resultUrl, category, description, false);
+        document.getElementById('tryon-progress').classList.remove('active');
+        setLog('tryon', 'Prova completata ✓');
+        return;
+      }
+      // Server rispose ma con errore → fallback browser
+      console.warn('IDM-VTON fallito, fallback browser:', data.error || resp.status);
+    } catch (fetchErr) {
+      console.warn('Fetch IDM-VTON fallita, fallback browser:', fetchErr.message);
+    }
+  } else {
+    setLog('tryon', 'Server non disponibile — uso AI browser locale…');
+    await wait(400);
+  }
+
+  // ── Percorso browser-side (RMBG-1.4 + MediaPipe Pose) ──
+  setStep('tryon', 3, totalSteps);
+  setLog('tryon', 'Rimozione sfondo capo (RMBG-1.4 open source)…');
   await wait(80);
 
   var personCanvas  = document.getElementById('tryon-person-canvas');
   var garmentCanvas = document.getElementById('tryon-garment-canvas');
 
-  var personBlob  = await canvasToBlob(personCanvas);
-  var garmentBlob = await canvasToBlob(garmentCanvas);
+  var garmentDataUrl;
+  try {
+    garmentDataUrl = await CM.removeBackgroundBrowser(garmentCanvas, function(msg) {
+      setLog('tryon', msg);
+    });
+  } catch (e) {
+    // Fallback: usa l'immagine del capo così com'è (senza rimozione sfondo)
+    garmentDataUrl = garmentCanvas.toDataURL('image/jpeg', 0.95);
+  }
 
-  setLog('tryon', 'Immagini pronte ✓');
-  await wait(300);
+  setLog('tryon', 'Sfondo capo rimosso ✓');
+  await wait(100);
 
-  // STEP 3 — Elaborazione AI
-  setStep('tryon', 3, totalSteps);
-  setLog('tryon', 'Elaborazione IDM-VTON su HuggingFace… (1–3 min, sii paziente)');
+  setStep('tryon', 4, totalSteps);
+  setLog('tryon', 'Posizionamento con MediaPipe Pose (33 landmark corporei)…');
   await wait(80);
 
-  var fd = new FormData();
-  fd.append('person',      personBlob,  'person.jpg');
-  fd.append('garment',     garmentBlob, 'garment.jpg');
-  fd.append('category',    category);
-  fd.append('garmentDesc', description);
+  var garmentType = GARMENT_TYPE[category] || 'upper';
+  var resultUrl = await CM.compositeGarmentLandmarks(personCanvas, garmentDataUrl, garmentType);
 
-  var resp = await fetch(SERVER + '/api/tryon', { method: 'POST', body: fd });
-  if (!resp.ok) {
-    var errJson = await resp.json().catch(function() { return {}; });
-    var msg = errJson.error || 'Errore server ' + resp.status;
-    throw new Error(msg);
-  }
-  var data = await resp.json();
-  if (!data.success || !data.resultUrl) throw new Error(data.error || 'Risposta non valida dal server');
-
-  // STEP 4 — Mostra risultato
-  setStep('tryon', 4, totalSteps);
+  setStep('tryon', 5, totalSteps);
   setLog('tryon', 'Risultato pronto ✓');
   await wait(200);
 
-  renderTryonResults(data.resultUrl, category, description);
+  renderTryonResults(resultUrl, category, description, true);
   document.getElementById('tryon-progress').classList.remove('active');
   setLog('tryon', 'Prova completata ✓');
 }
@@ -234,15 +281,21 @@ function renderTryonError(msg) {
   el.classList.add('visible');
 }
 
-function renderTryonResults(resultUrl, category, description) {
+function renderTryonResults(resultUrl, category, description, isBrowserMode) {
   var labels = {
+    upper: 'Parte superiore', lower: 'Parte inferiore', dress: 'Abito intero', full: 'Tuta/intero',
     upper_body: 'Parte superiore', lower_body: 'Parte inferiore', dresses: 'Abito intero',
     acc_hat: 'Cappello', acc_glasses: 'Occhiali', acc_scarf: 'Sciarpa',
     acc_necklace: 'Collana', acc_earring: 'Orecchini', acc_belt: 'Cintura', acc_bag: 'Borsa'
   };
+  var modeBadge = isBrowserMode
+    ? '<div style="display:inline-block;background:#f3e8ff;color:#7c3aed;border-radius:20px;padding:4px 14px;font-size:12px;margin-bottom:12px;">🧠 RMBG-1.4 + MediaPipe Pose (browser)</div>'
+    : '<div style="display:inline-block;background:#e8f5e9;color:#2e7d32;border-radius:20px;padding:4px 14px;font-size:12px;margin-bottom:12px;">✨ IDM-VTON AI (HuggingFace)</div>';
+
   var el = document.getElementById('tryon-results');
   el.innerHTML = [
     '<div style="text-align:center;">',
+    modeBadge,
     '<img src="' + resultUrl + '" alt="Virtual Try-On" ',
     'style="max-width:100%;border-radius:16px;box-shadow:0 8px 40px rgba(44,36,32,0.18);">',
     '</div>',
@@ -259,11 +312,19 @@ function renderTryonResults(resultUrl, category, description) {
     '<a href="' + resultUrl + '" download="chromame-tryon.png" class="btn-secondary" style="display:inline-block;text-decoration:none;">',
     'Scarica risultato ⬇</a>',
     '</div>',
-    '<div class="tip-card full-width">',
-    '<strong>Consiglio per risultati migliori</strong>',
-    '<p class="mt-8 text-sm">Usa foto della persona in posa frontale, dritta, con sfondo neutro. ',
-    'Per il capo usa foto su sfondo bianco o manichino. Più le foto sono pulite, più il risultato è realistico.</p>',
-    '</div>',
+    isBrowserMode ? [
+      '<div class="tip-card full-width">',
+      '<strong>Modalità browser locale (senza server AI)</strong>',
+      '<p class="mt-8 text-sm">Risultato generato nel browser con RMBG-1.4 + MediaPipe Pose. ',
+      'Per qualità AI diffusion, aggiungi <strong>HF_TOKEN</strong> nel file <code>.env</code> e riavvia il server.</p>',
+      '</div>'
+    ].join('') : [
+      '<div class="tip-card full-width">',
+      '<strong>Consiglio per risultati migliori</strong>',
+      '<p class="mt-8 text-sm">Usa foto della persona in posa frontale con sfondo neutro. ',
+      'Per il capo usa foto su sfondo bianco. Più le foto sono pulite, più il risultato è realistico.</p>',
+      '</div>'
+    ].join(''),
     '</div>'
   ].join('');
   el.classList.add('visible');

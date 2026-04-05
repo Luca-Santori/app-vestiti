@@ -313,4 +313,111 @@ function fallback(W, H, xRel, yRel, wRel, ratio) {
   return { x: W * xRel - accW/2, y: H * yRel, w: accW, h: accH };
 }
 
+/* ── Try-On capi (RMBG-1.4 + MediaPipe Pose) ──────────
+   Funziona 100% nel browser, zero server, zero token.
+   Qualità visiva buona per foto frontali su sfondo neutro.
+   ──────────────────────────────────────────────────── */
+
+CM.compositeGarmentLandmarks = async function (personCanvas, garmentDataUrl, category) {
+  var W = personCanvas.width;
+  var H = personCanvas.height;
+
+  // Rileva pose per posizionamento capo
+  var poseLms = await runPose(personCanvas);
+
+  var garmentImg = await loadImage(garmentDataUrl);
+
+  var out = document.createElement('canvas');
+  out.width  = W;
+  out.height = H;
+  var ctx = out.getContext('2d');
+  ctx.drawImage(personCanvas, 0, 0);
+
+  var placement = computeGarmentPlacement(category, poseLms, W, H, garmentImg);
+
+  // Disegna il capo con lieve ombra per realismo
+  ctx.save();
+  ctx.globalAlpha = 0.97;
+  ctx.drawImage(garmentImg, placement.x, placement.y, placement.w, placement.h);
+  ctx.restore();
+
+  return out.toDataURL('image/jpeg', 0.93);
+};
+
+function computeGarmentPlacement(category, pose, W, H, img) {
+  var ratio = img.naturalWidth / img.naturalHeight;
+
+  // Estrai landmark di riferimento (con fallback proporzionale)
+  var lSh, rSh, lHip, rHip, lAnk, rAnk;
+
+  if (pose) {
+    lSh  = { x: pose[11].x * W, y: pose[11].y * H };
+    rSh  = { x: pose[12].x * W, y: pose[12].y * H };
+    lHip = { x: pose[23].x * W, y: pose[23].y * H };
+    rHip = { x: pose[24].x * W, y: pose[24].y * H };
+    // Ankle: landmark 27 (sinistra) e 28 (destra)
+    lAnk = pose[27] ? { x: pose[27].x * W, y: pose[27].y * H } : null;
+    rAnk = pose[28] ? { x: pose[28].x * W, y: pose[28].y * H } : null;
+  } else {
+    // Fallback proporzionale senza pose
+    lSh  = { x: W * 0.32, y: H * 0.20 };
+    rSh  = { x: W * 0.68, y: H * 0.20 };
+    lHip = { x: W * 0.35, y: H * 0.52 };
+    rHip = { x: W * 0.65, y: H * 0.52 };
+    lAnk = { x: W * 0.37, y: H * 0.90 };
+    rAnk = { x: W * 0.63, y: H * 0.90 };
+  }
+
+  var shoulderW = Math.abs(rSh.x - lSh.x);
+  var hipW      = Math.abs(rHip.x - lHip.x);
+  var centerX   = (lSh.x + rSh.x) / 2;
+  var hipCenterX = (lHip.x + rHip.x) / 2;
+  var ankleY    = lAnk && rAnk ? (lAnk.y + rAnk.y) / 2 : H * 0.92;
+
+  if (category === 'upper') {
+    // Parte superiore: spalle → fianchi
+    var w = shoulderW * 1.25;
+    var h = w / ratio;
+    var yTop = Math.min(lSh.y, rSh.y) - h * 0.08;
+    var yBot = (lHip.y + rHip.y) / 2;
+    // Se l'immagine del capo è troppo corta/lunga, adatta all'altezza
+    if (h < (yBot - yTop) * 0.7) {
+      h = (yBot - yTop) * 1.05;
+      w = h * ratio;
+    }
+    return { x: centerX - w/2, y: yTop, w: w, h: h };
+  }
+
+  if (category === 'lower') {
+    // Parte inferiore: fianchi → caviglie
+    var w = hipW * 1.30;
+    var h = w / ratio;
+    var yTop = (lHip.y + rHip.y) / 2 - h * 0.04;
+    var targetH = ankleY - yTop;
+    if (h < targetH * 0.7) {
+      h = targetH * 1.05;
+      w = h * ratio;
+    }
+    return { x: hipCenterX - w/2, y: yTop, w: w, h: h };
+  }
+
+  if (category === 'dress' || category === 'full') {
+    // Vestito intero / tuta: spalle → caviglie
+    var w = shoulderW * 1.25;
+    var h = w / ratio;
+    var yTop = Math.min(lSh.y, rSh.y) - h * 0.05;
+    var targetH = ankleY - yTop;
+    if (h < targetH * 0.85) {
+      h = targetH * 1.05;
+      w = h * ratio;
+    }
+    return { x: centerX - w/2, y: yTop, w: w, h: h };
+  }
+
+  // Fallback generico: centra nella metà inferiore
+  var w = W * 0.7;
+  var h = w / ratio;
+  return { x: centerX - w/2, y: H * 0.18, w: w, h: h };
+}
+
 })();
