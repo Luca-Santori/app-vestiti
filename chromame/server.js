@@ -9,38 +9,42 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 
 app.use(cors());
 app.use(express.static('.'));
 
-/* ── OOTDiffusion (HuggingFace, gratuito, no API key) ── */
+/* ── IDM-VTON via HuggingFace ZeroGPU (token consigliato) ── */
 
-const SPACE_URL = 'https://levihsu-ootdiffusion.hf.space';
+const SPACE_URL = 'https://yisol-idm-vton.hf.space';
+const HF_TOKEN  = process.env.HF_TOKEN || '';
+const authHdr   = () => HF_TOKEN ? { 'Authorization': `Bearer ${HF_TOKEN}` } : {};
 
 async function uploadImage(buffer, mime, filename) {
   const fd = new FormData();
   fd.append('files', new File([buffer], filename, { type: mime }));
-  const resp = await fetch(`${SPACE_URL}/upload`, { method: 'POST', body: fd });
+  const resp = await fetch(`${SPACE_URL}/upload`, {
+    method: 'POST',
+    headers: authHdr(),
+    body: fd
+  });
   if (!resp.ok) throw new Error(`Upload fallito: ${resp.status} ${await resp.text()}`);
   const [path] = await resp.json();
   return path;
 }
 
-async function submitPrediction(personPath, garmentPath) {
-  const makeFileData = (path, name) => ({
-    path,
-    meta: { _type: 'gradio.FileData' },
-    orig_name: name,
-    url: `${SPACE_URL}/file=${path}`
-  });
+async function submitPrediction(personPath, garmentPath, description = 'a garment') {
+  const makeFD = (p, n) => ({ path: p, meta: { _type: 'gradio.FileData' }, orig_name: n, url: `${SPACE_URL}/file=${p}` });
+  const personFD  = makeFD(personPath,  'person.jpg');
+  const garmentFD = makeFD(garmentPath, 'garment.jpg');
 
-  const resp = await fetch(`${SPACE_URL}/call/process_hd`, {
+  const resp = await fetch(`${SPACE_URL}/call/tryon`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHdr() },
     body: JSON.stringify({
       data: [
-        makeFileData(personPath, 'person.jpg'),  // Model (persona)
-        makeFileData(garmentPath, 'garment.jpg'), // Garment (capo)
-        1,   // Images (quante generare)
-        20,  // Steps
-        2,   // Guidance scale
-        -1   // Seed (-1 = random)
+        { background: personFD, layers: [], composite: personFD }, // ImageEditor
+        garmentFD,       // Garment image
+        description,     // Testo descrittivo
+        true,            // is_checked (auto-masking)
+        true,            // is_checked_crop
+        20,              // denoise_steps
+        42               // seed
       ]
     })
   });
@@ -54,8 +58,9 @@ async function waitForResult(eventId) {
   const tid  = setTimeout(() => ctrl.abort(), 300_000); // 5 min
 
   try {
-    const resp = await fetch(`${SPACE_URL}/call/process_hd/${eventId}`, {
-      signal: ctrl.signal
+    const resp = await fetch(`${SPACE_URL}/call/tryon/${eventId}`, {
+      signal: ctrl.signal,
+      headers: authHdr()
     });
     if (!resp.ok) throw new Error(`SSE fallito: ${resp.status}`);
 
@@ -92,22 +97,18 @@ async function waitForResult(eventId) {
           throw new Error(errMsg);
         }
 
-        // Gradio 4.x — event: complete → data = [Gallery]
-        // OOTDiffusion Gallery: [ [{image:{url,path}}, ...] ]
+        // IDM-VTON returns [resultImage, maskImage] — data[0] = risultato
         if (lastEvent === 'complete') {
           clearTimeout(tid);
           let data;
           try { data = JSON.parse(rawData); } catch { throw new Error('Output non valido'); }
           console.log('  complete data:', JSON.stringify(data).slice(0, 300));
-          // data[0] = array della gallery
-          const gallery = Array.isArray(data) ? (Array.isArray(data[0]) ? data[0] : data) : [data];
-          const item = gallery[0];
-          if (!item) throw new Error('Gallery vuota');
-          if (item?.image?.url) return item.image.url;
-          if (item?.image?.path) return `${SPACE_URL}/file=${item.image.path}`;
-          if (item?.url) return item.url;
-          if (item?.path) return `${SPACE_URL}/file=${item.path}`;
-          return String(item);
+          const img = Array.isArray(data) ? data[0] : data;
+          if (!img) throw new Error('Nessuna immagine nell\'output');
+          if (img?.url)  return img.url;
+          if (img?.path) return `${SPACE_URL}/file=${img.path}`;
+          if (typeof img === 'string' && img.startsWith('http')) return img;
+          return String(img);
         }
 
         // Gradio 3.x — data: {"msg": "process_completed", "output": {...}}
@@ -122,17 +123,14 @@ async function waitForResult(eventId) {
         }
         if (msg.msg === 'process_completed') {
           clearTimeout(tid);
-          // OOTDiffusion returns Gallery: [{image:{url,path}}, ...]
+          // IDM-VTON returns [resultImage, maskImage] — vogliamo data[0]
           const data = msg.output?.data ?? (Array.isArray(msg.output) ? msg.output : null);
           if (!data) throw new Error('Output vuoto');
-          const gallery = Array.isArray(data[0]) ? data[0] : data;
-          const item = gallery[0];
-          if (!item) throw new Error('Nessuna immagine');
-          if (item?.image?.url) return item.image.url;
-          if (item?.image?.path) return `${SPACE_URL}/file=${item.image.path}`;
-          if (item?.url) return item.url;
-          if (item?.path) return `${SPACE_URL}/file=${item.path}`;
-          return String(item);
+          const img = Array.isArray(data) ? data[0] : data;
+          if (!img) throw new Error('Nessuna immagine');
+          if (img?.url)  return img.url;
+          if (img?.path) return `${SPACE_URL}/file=${img.path}`;
+          return String(img);
         }
       }
     }
@@ -254,7 +252,7 @@ app.post('/api/tryon',
           console.log('  Upload OK ✓');
 
           console.log('  [2/3] Submit a OOTDiffusion...');
-          const eventId = await submitPrediction(personPath, garmentPath);
+          const eventId = await submitPrediction(personPath, garmentPath, description);
           console.log(`  In coda — event_id: ${eventId}`);
 
           console.log('  [3/3] Attesa risultato (30–90 sec)...');
@@ -271,7 +269,7 @@ app.post('/api/tryon',
       res.json({ success: true, resultUrl });
 
     } catch (err) {
-      console.error('Errore OOTDiffusion:', err.message);
+      console.error('Errore IDM-VTON:', err.message);
       res.status(500).json({ success: false, error: err.message });
     }
   }
@@ -286,6 +284,13 @@ app.listen(PORT, () => {
   console.log(`║   http://localhost:${PORT}                  ║`);
   console.log('║                                          ║');
   console.log('║   Apri: http://localhost:3000/index.html ║');
-  console.log('║   Gratuito — OOTDiffusion (HuggingFace)  ║');
+  if (HF_TOKEN) {
+    console.log('║   ✓ HF_TOKEN configurato                   ║');
+  } else {
+    console.log('║   ⚠ Nessun HF_TOKEN — ZeroGPU limitato    ║');
+    console.log('║   Crea token su huggingface.co/settings   ║');
+    console.log('║   e aggiungi HF_TOKEN=hf_xxx nel .env     ║');
+  }
+  console.log('║   Gratuito — IDM-VTON (HuggingFace)       ║');
   console.log('╚══════════════════════════════════════════╝\n');
 });
