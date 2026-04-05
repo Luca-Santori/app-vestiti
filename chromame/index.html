@@ -108,26 +108,31 @@
 
 <!-- ═══════════════════════ TAB 3 — VIRTUAL TRY-ON ═══════════════════════ -->
 <div class="tab-panel" id="panel-tryon">
-  <h2 class="heading-display" style="font-size:24px; margin-bottom:6px;">Virtual Try-On</h2>
-  <p class="text-sm text-muted mb-12">Sovrapponi un capo a una foto persona per un'anteprima di stile.</p>
+  <h2 class="heading-display" style="font-size:24px; margin-bottom:6px;">Virtual Try-On AI</h2>
+  <p class="text-sm text-muted mb-12">Carica la tua foto e la foto del capo — l'AI (IDM-VTON) lo indosserà realisticamente.</p>
+
+  <div class="tip-card mb-12" style="font-size:13px;">
+    <strong>Prima di iniziare:</strong> avvia <code>start.bat</code> nella cartella <code>chromame</code> per avviare il server AI locale.
+    Token gratuito su <a href="https://replicate.com/account/api-tokens" target="_blank" style="color:var(--rose-dark);">replicate.com</a>
+  </div>
 
   <div class="uploads-row mb-12">
     <div class="card">
-      <p class="text-sm text-muted mb-8">Foto persona</p>
+      <p class="text-sm text-muted mb-8">La tua foto (full-body, sfondo neutro)</p>
       <div class="upload-zone" id="tryon-person-upload">
         <input type="file" accept="image/*" hidden id="tryon-person-file">
         <div class="icon">🧑</div>
-        <div class="label">Persona</div>
+        <div class="label">Foto persona</div>
         <div class="file-name" id="tryon-person-fname"></div>
       </div>
       <canvas class="preview-canvas" id="tryon-person-canvas" style="display:none;"></canvas>
     </div>
     <div class="card">
-      <p class="text-sm text-muted mb-8">Foto capo</p>
+      <p class="text-sm text-muted mb-8">Foto capo (sfondo bianco o manichino)</p>
       <div class="upload-zone" id="tryon-garment-upload">
         <input type="file" accept="image/*" hidden id="tryon-garment-file">
         <div class="icon">👗</div>
-        <div class="label">Capo</div>
+        <div class="label">Foto capo</div>
         <div class="file-name" id="tryon-garment-fname"></div>
       </div>
       <canvas class="preview-canvas" id="tryon-garment-canvas" style="display:none;"></canvas>
@@ -135,28 +140,22 @@
   </div>
 
   <div class="card mb-12">
-    <div class="slider-group">
-      <label>Opacità</label>
-      <input type="range" id="tryon-opacity" min="10" max="90" value="55">
-      <span class="val" id="tryon-opacity-val">55%</span>
-    </div>
-    <div class="slider-group">
-      <label>Contrasto</label>
-      <input type="range" id="tryon-contrast" min="80" max="150" value="105">
-      <span class="val" id="tryon-contrast-val">105%</span>
-    </div>
     <div class="slider-group select-wrap">
-      <label>Blend mode</label>
-      <select id="tryon-blend">
-        <option value="multiply">Multiply</option>
-        <option value="screen">Screen</option>
-        <option value="overlay" selected>Overlay</option>
-        <option value="soft-light">Soft Light</option>
+      <label>Categoria capo</label>
+      <select id="tryon-category">
+        <option value="upper_body">Parte superiore (maglie, giacche, camicie…)</option>
+        <option value="lower_body">Parte inferiore (pantaloni, gonne…)</option>
+        <option value="dresses">Abito intero</option>
       </select>
+    </div>
+    <div class="slider-group" style="margin-top:14px;">
+      <label style="display:block;margin-bottom:6px;">Descrizione capo <span class="text-xs text-muted">(opzionale, migliora il risultato)</span></label>
+      <input type="text" id="tryon-desc" placeholder="es. maglione nero a collo alto in lana"
+        style="width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:10px;font-family:inherit;font-size:14px;background:var(--ivory);color:var(--charcoal);box-sizing:border-box;">
     </div>
   </div>
 
-  <button class="btn-primary" id="tryon-btn" disabled>Prova il capo 👗</button>
+  <button class="btn-primary" id="tryon-btn" disabled>Prova il capo con AI 👗</button>
 
   <div class="progress-area" id="tryon-progress">
     <div class="loading-pulse"></div>

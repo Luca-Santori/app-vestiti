@@ -1,258 +1,152 @@
 /* ═══════════════════════════════════════════════════════
-   ChromaMe — Modulo 3: Virtual Try-On
-   Composizione persona + capo con effetti di blending
+   ChromaMe — Modulo 3: Virtual Try-On (AI — IDM-VTON)
+   Chiama il server locale → Replicate IDM-VTON
    ═══════════════════════════════════════════════════════ */
 
 (function() {
 
-var TRYON_WIDTH = CM.TRYON_WIDTH, TRYON_HEIGHT = CM.TRYON_HEIGHT;
-var BG_REMOVAL_THRESHOLD = CM.BG_REMOVAL_THRESHOLD;
-var SHARPENING_STRENGTH = CM.SHARPENING_STRENGTH, SAT_BOOST = CM.SAT_BOOST;
-var rgbToHsl = CM.rgbToHsl, hslToRgb = CM.hslToRgb;
 var initProgress = CM.initProgress, setStep = CM.setStep, setLog = CM.setLog, wait = CM.wait;
 
-/**
- * Remove background from garment image data (in-place).
- * Samples 5 corner pixels, averages as BG, sets similar pixels to transparent.
- * Applies 3px edge feathering.
- * @param {ImageData} data
- */
-function removeBackground(data) {
-  const d = data.data;
-  const w = data.width;
-  // Sample 5 corner pixels from top-left 20x20
-  const sampleCoords = [[2, 2], [5, 8], [12, 3], [17, 15], [8, 18]];
-  let bgR = 0, bgG = 0, bgB = 0;
-  for (const [sx, sy] of sampleCoords) {
-    const x = Math.min(sx, w - 1);
-    const y = Math.min(sy, data.height - 1);
-    const i = (y * w + x) * 4;
-    bgR += d[i]; bgG += d[i + 1]; bgB += d[i + 2];
-  }
-  bgR = Math.round(bgR / 5); bgG = Math.round(bgG / 5); bgB = Math.round(bgB / 5);
+var SERVER = 'http://localhost:3000';
 
-  // Remove pixels close to background
-  for (let i = 0; i < d.length; i += 4) {
-    const diff = Math.abs(d[i] - bgR) + Math.abs(d[i + 1] - bgG) + Math.abs(d[i + 2] - bgB);
-    if (diff < BG_REMOVAL_THRESHOLD) d[i + 3] = 0;
-  }
+/* ── Connessione ────────────────────────────────────── */
 
-  // 3px edge feathering
-  const alpha = new Uint8Array(data.width * data.height);
-  for (let i = 0; i < alpha.length; i++) alpha[i] = d[i * 4 + 3];
-  for (let y = 0; y < data.height; y++) {
-    for (let x = 0; x < data.width; x++) {
-      const idx = y * data.width + x;
-      if (alpha[idx] === 0) continue;
-      let nearEdge = false;
-      for (let dy = -3; dy <= 3 && !nearEdge; dy++) {
-        for (let dx = -3; dx <= 3 && !nearEdge; dx++) {
-          const nx = x + dx, ny = y + dy;
-          if (nx >= 0 && nx < data.width && ny >= 0 && ny < data.height) {
-            if (alpha[ny * data.width + nx] === 0) nearEdge = true;
-          }
-        }
-      }
-      if (nearEdge) {
-        let minD = 3;
-        for (let dy = -3; dy <= 3; dy++) {
-          for (let dx = -3; dx <= 3; dx++) {
-            const nx = x + dx, ny = y + dy;
-            if (nx >= 0 && nx < data.width && ny >= 0 && ny < data.height) {
-              if (alpha[ny * data.width + nx] === 0) {
-                const dd = Math.sqrt(dx * dx + dy * dy);
-                if (dd < minD) minD = dd;
-              }
-            }
-          }
-        }
-        d[idx * 4 + 3] = Math.round(d[idx * 4 + 3] * (minD / 3));
-      }
-    }
+async function checkServer() {
+  try {
+    var ctrl = new AbortController();
+    var tid = setTimeout(function() { ctrl.abort(); }, 3000);
+    var r = await fetch(SERVER + '/api/health', { signal: ctrl.signal });
+    clearTimeout(tid);
+    return r.ok;
+  } catch (e) {
+    return false;
   }
 }
 
-/**
- * Apply sharpening via 3x3 unsharp mask.
- * @param {ImageData} data
- * @param {number} strength
- */
-function applySharpen(data, strength) {
-  const d = data.data;
-  const w = data.width, h = data.height;
-  const orig = new Uint8ClampedArray(d);
-  for (let y = 1; y < h - 1; y++) {
-    for (let x = 1; x < w - 1; x++) {
-      const i = (y * w + x) * 4;
-      for (let c = 0; c < 3; c++) {
-        const neighbors =
-          orig[((y - 1) * w + x - 1) * 4 + c] + orig[((y - 1) * w + x) * 4 + c] + orig[((y - 1) * w + x + 1) * 4 + c] +
-          orig[(y * w + x - 1) * 4 + c] + orig[(y * w + x + 1) * 4 + c] +
-          orig[((y + 1) * w + x - 1) * 4 + c] + orig[((y + 1) * w + x) * 4 + c] + orig[((y + 1) * w + x + 1) * 4 + c];
-        const avg = neighbors / 8;
-        const diff = orig[i + c] - avg;
-        d[i + c] = Math.max(0, Math.min(255, Math.round(orig[i + c] + diff * strength)));
-      }
-    }
-  }
-}
+/* ── Pipeline principale ────────────────────────────── */
 
-/**
- * Boost saturation of ImageData by a percentage.
- * @param {ImageData} data
- * @param {number} boost - e.g. 0.10 for +10%
- */
-function boostSaturation(data, boost) {
-  const d = data.data;
-  for (let i = 0; i < d.length; i += 4) {
-    if (d[i + 3] === 0) continue;
-    const hsl = rgbToHsl(d[i], d[i + 1], d[i + 2]);
-    hsl.s = Math.min(100, hsl.s * (1 + boost));
-    const rgb = hslToRgb(hsl.h, hsl.s, hsl.l);
-    d[i] = rgb.r; d[i + 1] = rgb.g; d[i + 2] = rgb.b;
-  }
-}
-
-/**
- * Full try-on pipeline (5 steps).
- */
 async function runTryon() {
-  var STATE = CM.STATE;
-  const opacityVal = parseInt(document.getElementById('tryon-opacity').value) / 100;
-  const contrastVal = parseInt(document.getElementById('tryon-contrast').value) / 100;
-  const blendMode = document.getElementById('tryon-blend').value;
-  const totalSteps = 5;
+  var category    = document.getElementById('tryon-category').value;
+  var description = (document.getElementById('tryon-desc').value || '').trim() || 'a garment';
+  var totalSteps  = 4;
 
   initProgress('tryon', totalSteps);
 
-  // STEP 1 — Normalize
+  // STEP 1 — Verifica server
   setStep('tryon', 1, totalSteps);
-  setLog('tryon', 'Normalizzazione immagini...');
+  setLog('tryon', 'Connessione al server AI…');
   await wait(80);
 
-  const personCanvas = document.createElement('canvas');
-  personCanvas.width = TRYON_WIDTH; personCanvas.height = TRYON_HEIGHT;
-  personCanvas.getContext('2d').drawImage(STATE.tryonPersonImage, 0, 0, TRYON_WIDTH, TRYON_HEIGHT);
-
-  const garmentCanvas = document.createElement('canvas');
-  garmentCanvas.width = TRYON_WIDTH; garmentCanvas.height = TRYON_HEIGHT;
-  const gCtx = garmentCanvas.getContext('2d');
-  gCtx.drawImage(STATE.tryonGarmentImage, 0, 0, TRYON_WIDTH, TRYON_HEIGHT);
-
-  setLog('tryon', `Normalizzato a ${TRYON_WIDTH}×${TRYON_HEIGHT}px`);
+  var serverOk = await checkServer();
+  if (!serverOk) {
+    document.getElementById('tryon-progress').classList.remove('active');
+    setLog('tryon', '');
+    renderTryonError();
+    return;
+  }
+  setLog('tryon', 'Server connesso ✓');
   await wait(300);
 
-  // STEP 2 — Background removal
+  // STEP 2 — Prepara immagini
   setStep('tryon', 2, totalSteps);
-  setLog('tryon', 'Rimozione sfondo capo...');
+  setLog('tryon', 'Preparazione immagini…');
   await wait(80);
 
-  const gData = gCtx.getImageData(0, 0, TRYON_WIDTH, TRYON_HEIGHT);
-  removeBackground(gData);
-  gCtx.putImageData(gData, 0, 0);
+  var personCanvas  = document.getElementById('tryon-person-canvas');
+  var garmentCanvas = document.getElementById('tryon-garment-canvas');
 
-  setLog('tryon', 'Sfondo rimosso con feathering bordi');
+  var personBlob  = await canvasToBlob(personCanvas);
+  var garmentBlob = await canvasToBlob(garmentCanvas);
+
+  setLog('tryon', 'Immagini pronte ✓');
   await wait(300);
 
-  // STEP 3 — Contrast correction
+  // STEP 3 — Elaborazione AI
   setStep('tryon', 3, totalSteps);
-  setLog('tryon', `Correzione contrasto (${Math.round(contrastVal * 100)}%)...`);
+  setLog('tryon', 'Elaborazione IDM-VTON… (attendere 30–60 sec)');
   await wait(80);
 
-  const contrastCanvas = document.createElement('canvas');
-  contrastCanvas.width = TRYON_WIDTH; contrastCanvas.height = TRYON_HEIGHT;
-  const ccCtx = contrastCanvas.getContext('2d');
-  ccCtx.filter = `contrast(${contrastVal})`;
-  ccCtx.drawImage(garmentCanvas, 0, 0);
-  ccCtx.filter = 'none';
+  var fd = new FormData();
+  fd.append('person',      personBlob,  'person.jpg');
+  fd.append('garment',     garmentBlob, 'garment.jpg');
+  fd.append('category',    category);
+  fd.append('garmentDesc', description);
 
-  setLog('tryon', 'Contrasto applicato');
-  await wait(300);
+  var resp = await fetch(SERVER + '/api/tryon', { method: 'POST', body: fd });
+  if (!resp.ok) {
+    var errJson = await resp.json().catch(function() { return {}; });
+    throw new Error(errJson.error || 'Errore server ' + resp.status);
+  }
+  var data = await resp.json();
+  if (!data.success || !data.resultUrl) throw new Error('Risposta non valida dal server');
 
-  // STEP 4 — Composite
+  // STEP 4 — Mostra risultato
   setStep('tryon', 4, totalSteps);
-  setLog('tryon', `Composizione con blend mode: ${blendMode}...`);
-  await wait(80);
-
-  const resultCanvas = document.createElement('canvas');
-  resultCanvas.width = TRYON_WIDTH; resultCanvas.height = TRYON_HEIGHT;
-  const rCtx = resultCanvas.getContext('2d');
-
-  rCtx.globalAlpha = 1;
-  rCtx.drawImage(personCanvas, 0, 0);
-  rCtx.globalAlpha = opacityVal;
-  rCtx.globalCompositeOperation = blendMode;
-  rCtx.drawImage(contrastCanvas, 0, 0);
-  rCtx.globalAlpha = 1;
-  rCtx.globalCompositeOperation = 'source-over';
-
-  setLog('tryon', 'Composizione completata');
-  await wait(300);
-
-  // STEP 5 — Post-processing
-  setStep('tryon', 5, totalSteps);
-  setLog('tryon', 'Post-processing (sharpening + saturazione)...');
-  await wait(80);
-
-  const finalData = rCtx.getImageData(0, 0, TRYON_WIDTH, TRYON_HEIGHT);
-  applySharpen(finalData, SHARPENING_STRENGTH);
-  boostSaturation(finalData, SAT_BOOST);
-  rCtx.putImageData(finalData, 0, 0);
-
-  setLog('tryon', 'Post-processing completato ✓');
+  setLog('tryon', 'Risultato pronto ✓');
   await wait(200);
 
-  renderTryonResults(resultCanvas, blendMode, opacityVal);
-
+  renderTryonResults(data.resultUrl, category, description);
   document.getElementById('tryon-progress').classList.remove('active');
   setLog('tryon', 'Prova completata ✓');
 }
 
-/**
- * Render try-on results into DOM.
- * @param {HTMLCanvasElement} resultCanvas
- * @param {string} blendMode
- * @param {number} opacityVal 0-1
- */
-function renderTryonResults(resultCanvas, blendMode, opacityVal) {
-  const el = document.getElementById('tryon-results');
-  el.innerHTML = '';
+/* ── Helpers ────────────────────────────────────────── */
 
-  const displayCanvas = document.createElement('canvas');
-  displayCanvas.className = 'result-canvas';
-  displayCanvas.width = TRYON_WIDTH;
-  displayCanvas.height = TRYON_HEIGHT;
-  displayCanvas.getContext('2d').drawImage(resultCanvas, 0, 0);
-  el.appendChild(displayCanvas);
-
-  const metricsGrid = document.createElement('div');
-  metricsGrid.className = 'results-grid mt-16';
-  metricsGrid.innerHTML = `
-    <div class="card">
-      <p class="text-xs text-muted mb-8">Blend mode</p>
-      <div style="font-size:18px;font-weight:500;">${blendMode}</div>
-    </div>
-    <div class="card">
-      <p class="text-xs text-muted mb-8">Opacità applicata</p>
-      <div style="font-size:18px;font-weight:500;">${Math.round(opacityVal * 100)}%</div>
-    </div>
-    <div class="full-width" style="text-align:center;margin-top:12px;">
-      <button class="btn-secondary" id="tryon-download">Scarica risultato ⬇</button>
-    </div>
-    <div class="tip-card full-width">
-      <strong>Consiglio fotografico</strong>
-      <p class="mt-8 text-sm">Per risultati migliori, usa foto con sfondo uniforme e il capo su sfondo bianco o chiaro. L'illuminazione naturale garantisce colori più accurati.</p>
-    </div>
-  `;
-  el.appendChild(metricsGrid);
-
-  document.getElementById('tryon-download').addEventListener('click', () => {
-    const link = document.createElement('a');
-    link.download = 'chromame-tryon.png';
-    link.href = displayCanvas.toDataURL('image/png');
-    link.click();
+function canvasToBlob(canvas) {
+  return new Promise(function(resolve) {
+    canvas.toBlob(resolve, 'image/jpeg', 0.95);
   });
+}
 
+/* ── Render ─────────────────────────────────────────── */
+
+function renderTryonError() {
+  var el = document.getElementById('tryon-results');
+  el.innerHTML = [
+    '<div class="tip-card full-width" style="text-align:center;">',
+    '<strong>⚠ Server non avviato</strong>',
+    '<p class="mt-8 text-sm">Il Virtual Try-On AI richiede il server locale. Segui questi passi:</p>',
+    '<ol class="text-sm" style="text-align:left;margin-top:14px;padding-left:22px;line-height:2;">',
+    '<li>Apri la cartella <strong>chromame</strong></li>',
+    '<li>Copia <code>.env.example</code> → <code>.env</code></li>',
+    '<li>Inserisci il tuo token: <code>REPLICATE_API_TOKEN=r8_...</code><br>',
+    '<span class="text-xs text-muted">Token gratuito → <strong>replicate.com/account/api-tokens</strong></span></li>',
+    '<li>Fai doppio click su <strong>start.bat</strong></li>',
+    '<li>Torna qui e riprova</li>',
+    '</ol>',
+    '</div>'
+  ].join('');
+  el.classList.add('visible');
+}
+
+function renderTryonResults(resultUrl, category, description) {
+  var labels = { upper_body: 'Parte superiore', lower_body: 'Parte inferiore', dresses: 'Abito intero' };
+  var el = document.getElementById('tryon-results');
+  el.innerHTML = [
+    '<div style="text-align:center;">',
+    '<img src="' + resultUrl + '" alt="Virtual Try-On" ',
+    'style="max-width:100%;border-radius:16px;box-shadow:0 8px 40px rgba(44,36,32,0.18);">',
+    '</div>',
+    '<div class="results-grid mt-16">',
+    '<div class="card">',
+    '<p class="text-xs text-muted mb-8">Categoria</p>',
+    '<div style="font-size:18px;font-weight:500;">' + (labels[category] || category) + '</div>',
+    '</div>',
+    '<div class="card">',
+    '<p class="text-xs text-muted mb-8">Capo</p>',
+    '<div style="font-size:16px;">' + description + '</div>',
+    '</div>',
+    '<div class="full-width" style="text-align:center;margin-top:12px;">',
+    '<a href="' + resultUrl + '" download="chromame-tryon.png" class="btn-secondary" style="display:inline-block;text-decoration:none;">',
+    'Scarica risultato ⬇</a>',
+    '</div>',
+    '<div class="tip-card full-width">',
+    '<strong>Consiglio per risultati migliori</strong>',
+    '<p class="mt-8 text-sm">Usa foto della persona in posa frontale, dritta, con sfondo neutro. ',
+    'Per il capo usa foto su sfondo bianco o manichino. Più le foto sono pulite, più il risultato è realistico.</p>',
+    '</div>',
+    '</div>'
+  ].join('');
   el.classList.add('visible');
 }
 

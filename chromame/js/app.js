@@ -94,13 +94,7 @@ armoHex.addEventListener('input', () => {
 });
 
 /* ── Slider Labels ──────────────────────────────────── */
-
-document.getElementById('tryon-opacity').addEventListener('input', e => {
-  document.getElementById('tryon-opacity-val').textContent = e.target.value + '%';
-});
-document.getElementById('tryon-contrast').addEventListener('input', e => {
-  document.getElementById('tryon-contrast-val').textContent = e.target.value + '%';
-});
+// (rimossi: opacity e contrast slider sostituiti da category/desc nel Try-On AI)
 
 /* ── Button States ──────────────────────────────────── */
 
