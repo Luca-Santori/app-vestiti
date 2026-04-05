@@ -6,6 +6,7 @@ color 0A
 echo.
 echo  ╔══════════════════════════════════════════╗
 echo  ║       ChromaMe — Try-On AI Server       ║
+echo  ║   Gratuito via HuggingFace IDM-VTON     ║
 echo  ╚══════════════════════════════════════════╝
 echo.
 
@@ -29,20 +30,8 @@ if not exist "node_modules" (
     echo.
 )
 
-REM Controlla .env
-if not exist ".env" (
-    echo  [ATTENZIONE] File .env non trovato!
-    echo.
-    echo  Crea un file ".env" nella cartella chromame con:
-    echo  REPLICATE_API_TOKEN=r8_il_tuo_token_qui
-    echo.
-    echo  Ottieni il token GRATIS su: https://replicate.com/account/api-tokens
-    echo.
-    pause
-    exit /b 1
-)
-
 echo  Avvio server su http://localhost:3000
+echo  Apri http://localhost:3000/index.html nel browser.
 echo  Lascia questa finestra aperta mentre usi l'app.
 echo  Premi Ctrl+C per fermare.
 echo.

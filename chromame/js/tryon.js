@@ -63,7 +63,7 @@ async function runTryon() {
 
   // STEP 3 — Elaborazione AI
   setStep('tryon', 3, totalSteps);
-  setLog('tryon', 'Elaborazione IDM-VTON… (attendere 30–60 sec)');
+  setLog('tryon', 'Elaborazione IDM-VTON su HuggingFace… (1–3 min, sii paziente)');
   await wait(80);
 
   var fd = new FormData();

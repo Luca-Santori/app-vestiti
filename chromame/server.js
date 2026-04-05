@@ -1,25 +1,92 @@
 require('dotenv').config();
-const express  = require('express');
-const multer   = require('multer');
-const cors     = require('cors');
-const Replicate = require('replicate');
+const express = require('express');
+const multer  = require('multer');
+const cors    = require('cors');
 
-/* ── Setup ──────────────────────────────────────────── */
-
-const app     = express();
-const upload  = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
-const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
+const app    = express();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 app.use(cors());
-app.use(express.static('.'));   // serve index.html direttamente da qui
+app.use(express.static('.'));
 
-/* ── Health check ──────────────────────────────────── */
+/* ── HuggingFace Gradio Space (gratuito, no API key) ── */
 
-app.get('/api/health', (req, res) => res.json({ ok: true }));
+const SPACE_URL = 'https://yisol-idm-vton.hf.space';
 
-/* ── Virtual Try-On ────────────────────────────────── */
+async function uploadImage(buffer, mime, filename) {
+  const fd = new FormData();
+  fd.append('files', new File([buffer], filename, { type: mime }));
+  const resp = await fetch(`${SPACE_URL}/upload`, { method: 'POST', body: fd });
+  if (!resp.ok) throw new Error(`Upload fallito: ${resp.status} ${await resp.text()}`);
+  const [path] = await resp.json();
+  return path;
+}
+
+async function submitPrediction(personPath, garmentPath, description) {
+  const resp = await fetch(`${SPACE_URL}/call/tryon`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      data: [
+        { path: personPath },  // human_img
+        { path: garmentPath }, // garm_img
+        description,           // garment_des
+        true,                  // is_checked (auto-masking)
+        false,                 // is_checked_crop
+        30,                    // denoise_steps
+        42                     // seed
+      ]
+    })
+  });
+  if (!resp.ok) throw new Error(`Submit fallito: ${resp.status} ${await resp.text()}`);
+  const { event_id } = await resp.json();
+  return event_id;
+}
+
+async function waitForResult(eventId) {
+  const ctrl = new AbortController();
+  const tid  = setTimeout(() => ctrl.abort(), 300_000); // 5 min
+  try {
+    const resp = await fetch(`${SPACE_URL}/call/tryon/${eventId}`, {
+      signal: ctrl.signal
+    });
+    clearTimeout(tid);
+    if (!resp.ok) throw new Error(`SSE fallito: ${resp.status}`);
+
+    const text = await resp.text();
+
+    // Scorre i blocchi SSE cercando process_completed
+    for (const chunk of text.split('\n\n')) {
+      const dataLine = chunk.split('\n').find(l => l.startsWith('data: '));
+      if (!dataLine) continue;
+      let msg;
+      try { msg = JSON.parse(dataLine.slice(6)); } catch { continue; }
+
+      if (msg.msg === 'process_errored') {
+        throw new Error(msg.output?.error || 'Errore durante l\'elaborazione');
+      }
+      if (msg.msg === 'process_completed' && msg.output?.data) {
+        const data = msg.output.data;
+        // IDM-VTON restituisce [masked_img, result_img] → prendi l'ultimo
+        const img = data[data.length - 1] ?? data[0];
+        if (img?.url)  return img.url;
+        if (img?.path) return `${SPACE_URL}/file=${img.path}`;
+        return String(img);
+      }
+    }
+    throw new Error('Nessun risultato ricevuto dal modello');
+  } catch (err) {
+    clearTimeout(tid);
+    throw err;
+  }
+}
+
+/* ── Routes ─────────────────────────────────────────── */
+
+app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
 app.post('/api/tryon',
+  (req, res, next) => { req.setTimeout(320_000); res.setTimeout(320_000); next(); },
   upload.fields([{ name: 'person', maxCount: 1 }, { name: 'garment', maxCount: 1 }]),
   async (req, res) => {
     try {
@@ -31,45 +98,24 @@ app.post('/api/tryon',
       const garmentBuf  = req.files.garment[0].buffer;
       const personMime  = req.files.person[0].mimetype  || 'image/jpeg';
       const garmentMime = req.files.garment[0].mimetype || 'image/jpeg';
-
-      const category    = req.body.category    || 'upper_body';
       const description = req.body.garmentDesc || 'a garment';
 
-      const personUri  = `data:${personMime};base64,${personBuf.toString('base64')}`;
-      const garmentUri = `data:${garmentMime};base64,${garmentBuf.toString('base64')}`;
+      console.log(`\n→ Try-On | "${description}"`);
+      console.log('  [1/3] Upload immagini su HuggingFace...');
+      const [personPath, garmentPath] = await Promise.all([
+        uploadImage(personBuf, personMime, 'person.jpg'),
+        uploadImage(garmentBuf, garmentMime, 'garment.jpg')
+      ]);
+      console.log('  Upload OK ✓');
 
-      console.log(`\n→ Try-On | categoria: ${category} | "${description}"`);
-      console.log('  Invio a IDM-VTON (Replicate)...');
+      console.log('  [2/3] Submit a IDM-VTON...');
+      const eventId = await submitPrediction(personPath, garmentPath, description);
+      console.log(`  In coda — event_id: ${eventId}`);
 
-      // IDM-VTON con version hash obbligatorio per i modelli community
-      const output = await replicate.run(
-        'cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985',
-        {
-          input: {
-            human_img:        personUri,
-            garm_img:         garmentUri,
-            garment_des:      description,
-            category:         category,   // 'upper_body' | 'lower_body' | 'dresses'
-            is_checked:       true,
-            is_checked_crop:  false,
-            denoise_steps:    30,
-            seed:             42
-          }
-        }
-      );
-
-      // In replicate v1.x il risultato è un FileOutput con .url() sincrono
-      let resultUrl;
-      if (output && typeof output.url === 'function') {
-        resultUrl = output.url().toString();
-      } else if (Array.isArray(output)) {
-        const item = output[1] ?? output[0];
-        resultUrl = (item && typeof item.url === 'function') ? item.url().toString() : String(item);
-      } else {
-        resultUrl = String(output);
-      }
-
+      console.log('  [3/3] Attesa risultato (1–3 min)...');
+      const resultUrl = await waitForResult(eventId);
       console.log('  ✓ Risultato:', resultUrl);
+
       res.json({ success: true, resultUrl });
 
     } catch (err) {
@@ -87,7 +133,7 @@ app.listen(PORT, () => {
   console.log('║   ChromaMe — Try-On AI Server avviato   ║');
   console.log(`║   http://localhost:${PORT}                  ║`);
   console.log('║                                          ║');
-  console.log('║   Apri chromame/index.html nel browser   ║');
-  console.log('║   o vai su http://localhost:3000         ║');
+  console.log('║   Apri: http://localhost:3000/index.html ║');
+  console.log('║   Gratuito — HuggingFace IDM-VTON        ║');
   console.log('╚══════════════════════════════════════════╝\n');
 });
