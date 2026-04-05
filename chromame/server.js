@@ -46,35 +46,50 @@ async function submitPrediction(personPath, garmentPath, description) {
 async function waitForResult(eventId) {
   const ctrl = new AbortController();
   const tid  = setTimeout(() => ctrl.abort(), 300_000); // 5 min
+
   try {
     const resp = await fetch(`${SPACE_URL}/call/tryon/${eventId}`, {
       signal: ctrl.signal
     });
-    clearTimeout(tid);
     if (!resp.ok) throw new Error(`SSE fallito: ${resp.status}`);
 
-    const text = await resp.text();
+    // Legge lo stream SSE riga per riga
+    const decoder = new TextDecoder();
+    let buffer = '';
 
-    // Scorre i blocchi SSE cercando process_completed
-    for (const chunk of text.split('\n\n')) {
-      const dataLine = chunk.split('\n').find(l => l.startsWith('data: '));
-      if (!dataLine) continue;
-      let msg;
-      try { msg = JSON.parse(dataLine.slice(6)); } catch { continue; }
+    for await (const rawChunk of resp.body) {
+      buffer += decoder.decode(rawChunk, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // ultima riga incompleta, teniamola
 
-      if (msg.msg === 'process_errored') {
-        throw new Error(msg.output?.error || 'Errore durante l\'elaborazione');
-      }
-      if (msg.msg === 'process_completed' && msg.output?.data) {
-        const data = msg.output.data;
-        // IDM-VTON restituisce [masked_img, result_img] → prendi l'ultimo
-        const img = data[data.length - 1] ?? data[0];
-        if (img?.url)  return img.url;
-        if (img?.path) return `${SPACE_URL}/file=${img.path}`;
-        return String(img);
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        let msg;
+        try { msg = JSON.parse(line.slice(6)); } catch { continue; }
+        if (!msg || typeof msg !== 'object') continue;
+
+        console.log('  SSE msg:', msg.msg ?? '(no msg field)');
+
+        if (msg.msg === 'process_errored') {
+          clearTimeout(tid);
+          throw new Error(msg.output?.error || 'Errore durante l\'elaborazione');
+        }
+        if (msg.msg === 'process_completed') {
+          clearTimeout(tid);
+          const data = msg.output?.data ?? (Array.isArray(msg.output) ? msg.output : null);
+          if (!data) throw new Error('Output vuoto dal modello');
+          const img = data[data.length - 1] ?? data[0];
+          if (!img) throw new Error('Nessuna immagine nell\'output');
+          if (img?.url)  return img.url;
+          if (img?.path) return `${SPACE_URL}/file=${img.path}`;
+          if (typeof img === 'string' && img.startsWith('http')) return img;
+          return String(img);
+        }
       }
     }
-    throw new Error('Nessun risultato ricevuto dal modello');
+
+    clearTimeout(tid);
+    throw new Error('Stream SSE chiuso senza risultato');
   } catch (err) {
     clearTimeout(tid);
     throw err;
