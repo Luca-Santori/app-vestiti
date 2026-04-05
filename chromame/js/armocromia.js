@@ -36,7 +36,8 @@ async function runArmocromia() {
   const canvas = document.getElementById('armo-canvas');
   const ctx = canvas.getContext('2d');
   const w = canvas.width, h = canvas.height;
-  const garmentHex = document.getElementById('armo-hex').value;
+  const rawHex = document.getElementById('armo-hex').value;
+  const garmentHex = /^#[0-9a-fA-F]{6}$/.test(rawHex) ? rawHex : '#000000';
   const totalSteps = 6;
 
   initProgress('armo', totalSteps);

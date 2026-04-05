@@ -112,7 +112,9 @@ function boostSaturation(data, boost) {
 async function runTryon() {
   const opacityVal = parseInt(document.getElementById('tryon-opacity').value) / 100;
   const contrastVal = parseInt(document.getElementById('tryon-contrast').value) / 100;
-  const blendMode = document.getElementById('tryon-blend').value;
+  const VALID_BLEND_MODES = ['multiply', 'screen', 'overlay', 'soft-light'];
+  const rawBlend = document.getElementById('tryon-blend').value;
+  const blendMode = VALID_BLEND_MODES.includes(rawBlend) ? rawBlend : 'overlay';
   const totalSteps = 5;
 
   initProgress('tryon', totalSteps);
