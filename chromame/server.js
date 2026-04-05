@@ -53,33 +53,65 @@ async function waitForResult(eventId) {
     });
     if (!resp.ok) throw new Error(`SSE fallito: ${resp.status}`);
 
-    // Legge lo stream SSE riga per riga
     const decoder = new TextDecoder();
     let buffer = '';
+    let lastEvent = '';
 
     for await (const rawChunk of resp.body) {
       buffer += decoder.decode(rawChunk, { stream: true });
       const lines = buffer.split('\n');
-      buffer = lines.pop(); // ultima riga incompleta, teniamola
+      buffer = lines.pop(); // riga incompleta, rimandata
 
       for (const line of lines) {
+        // Gradio 4.x: righe "event: complete" / "event: error" / "event: generating"
+        if (line.startsWith('event: ')) {
+          lastEvent = line.slice(7).trim();
+          console.log('  SSE event:', lastEvent);
+          continue;
+        }
         if (!line.startsWith('data: ')) continue;
-        let msg;
-        try { msg = JSON.parse(line.slice(6)); } catch { continue; }
-        if (!msg || typeof msg !== 'object') continue;
 
-        console.log('  SSE msg:', msg.msg ?? '(no msg field)');
+        const rawData = line.slice(6);
+
+        // Gradio 4.x — event: error
+        if (lastEvent === 'error') {
+          let errMsg = rawData;
+          try { errMsg = JSON.parse(rawData)?.error || rawData; } catch {}
+          clearTimeout(tid);
+          throw new Error(errMsg);
+        }
+
+        // Gradio 4.x — event: complete → data è un array diretto [masked, result]
+        if (lastEvent === 'complete') {
+          clearTimeout(tid);
+          let data;
+          try { data = JSON.parse(rawData); } catch { throw new Error('Output non valido'); }
+          const img = Array.isArray(data) ? (data[data.length - 1] ?? data[0]) : data;
+          if (!img) throw new Error('Nessuna immagine nell\'output');
+          if (img?.url)  return img.url;
+          if (img?.path) return `${SPACE_URL}/file=${img.path}`;
+          if (typeof img === 'string' && img.startsWith('http')) return img;
+          // Gradio può restituire un oggetto con "url" come stringa
+          console.log('  img object:', JSON.stringify(img).slice(0, 200));
+          return String(img);
+        }
+
+        // Gradio 3.x — data: {"msg": "process_completed", "output": {...}}
+        let msg;
+        try { msg = JSON.parse(rawData); } catch { continue; }
+        if (!msg || typeof msg !== 'object' || Array.isArray(msg)) continue;
+        console.log('  SSE msg:', msg.msg ?? '(no msg)');
 
         if (msg.msg === 'process_errored') {
           clearTimeout(tid);
-          throw new Error(msg.output?.error || 'Errore durante l\'elaborazione');
+          throw new Error(msg.output?.error || 'Errore elaborazione');
         }
         if (msg.msg === 'process_completed') {
           clearTimeout(tid);
           const data = msg.output?.data ?? (Array.isArray(msg.output) ? msg.output : null);
-          if (!data) throw new Error('Output vuoto dal modello');
+          if (!data) throw new Error('Output vuoto');
           const img = data[data.length - 1] ?? data[0];
-          if (!img) throw new Error('Nessuna immagine nell\'output');
+          if (!img) throw new Error('Nessuna immagine');
           if (img?.url)  return img.url;
           if (img?.path) return `${SPACE_URL}/file=${img.path}`;
           if (typeof img === 'string' && img.startsWith('http')) return img;
