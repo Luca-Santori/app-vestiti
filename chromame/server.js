@@ -92,7 +92,11 @@ async function waitForResult(eventId) {
         // Gradio 4.x — event: error
         if (lastEvent === 'error') {
           let errMsg = rawData;
-          try { errMsg = JSON.parse(rawData)?.error || rawData; } catch {}
+          try {
+            const parsed = JSON.parse(rawData);
+            errMsg = (parsed && parsed.error) ? parsed.error : (parsed !== null ? String(parsed) : 'HuggingFace ha restituito un errore. Riprova tra qualche secondo.');
+          } catch {}
+          if (!errMsg || errMsg === 'null') errMsg = 'HuggingFace ha restituito un errore. Riprova tra qualche secondo.';
           clearTimeout(tid);
           throw new Error(errMsg);
         }

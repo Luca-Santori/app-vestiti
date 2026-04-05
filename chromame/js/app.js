@@ -145,8 +145,7 @@ document.getElementById('tryon-btn').addEventListener('click', async () => {
     await CM.runTryon();
   } catch (err) {
     document.getElementById('tryon-progress').classList.remove('active');
-    var isRateLimit = err.message === 'RATE_LIMIT';
-    CM.renderTryonError(isRateLimit);
+    CM.renderTryonError(err.message);
     console.error(err);
   }
   btn.disabled = false;

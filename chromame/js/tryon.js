@@ -76,14 +76,10 @@ async function runTryon() {
   if (!resp.ok) {
     var errJson = await resp.json().catch(function() { return {}; });
     var msg = errJson.error || 'Errore server ' + resp.status;
-    // Messaggio user-friendly per il rate limit
-    if (msg.includes('429') || msg.includes('throttled') || msg.includes('rate limit') || msg.includes('Too Many')) {
-      throw new Error('RATE_LIMIT');
-    }
     throw new Error(msg);
   }
   var data = await resp.json();
-  if (!data.success || !data.resultUrl) throw new Error('Risposta non valida dal server');
+  if (!data.success || !data.resultUrl) throw new Error(data.error || 'Risposta non valida dal server');
 
   // STEP 4 — Mostra risultato
   setStep('tryon', 4, totalSteps);
@@ -105,17 +101,9 @@ function canvasToBlob(canvas) {
 
 /* ── Render ─────────────────────────────────────────── */
 
-function renderTryonError(isRateLimit) {
+function renderTryonError(msg) {
   var el = document.getElementById('tryon-results');
-  if (isRateLimit) {
-    el.innerHTML = [
-      '<div class="tip-card full-width" style="text-align:center;">',
-      '<strong>⚠ Errore HuggingFace IDM-VTON</strong>',
-      '<p class="mt-8 text-sm">Il modello ha restituito un errore. Riprova tra qualche secondo.</p>',
-      '<p class="mt-8 text-xs text-muted">Se il problema persiste lo Space HuggingFace potrebbe essere in manutenzione.</p>',
-      '</div>'
-    ].join('');
-  } else {
+  if (!msg || msg === 'false') {
     el.innerHTML = [
       '<div class="tip-card full-width" style="text-align:center;">',
       '<strong>⚠ Server non avviato</strong>',
@@ -125,7 +113,18 @@ function renderTryonError(isRateLimit) {
       '<li>Lascia la finestra aperta</li>',
       '<li>Apri <strong>http://localhost:3000/index.html</strong> nel browser (non da file://)</li>',
       '</ol>',
-      '<p class="mt-8 text-xs text-muted">Completamente gratuito — nessun API key richiesto.</p>',
+      '</div>'
+    ].join('');
+  } else {
+    el.innerHTML = [
+      '<div class="tip-card full-width" style="text-align:center;">',
+      '<strong>⚠ Errore elaborazione AI</strong>',
+      '<p class="mt-8 text-sm">' + msg + '</p>',
+      '<p class="mt-8 text-sm">Riprova. Se persiste, usa foto diverse:</p>',
+      '<ul class="text-sm" style="text-align:left;margin-top:8px;padding-left:22px;line-height:2;">',
+      '<li>Persona: <strong>full-body</strong> in piedi, frontale, sfondo neutro</li>',
+      '<li>Capo: solo il vestito su sfondo bianco</li>',
+      '</ul>',
       '</div>'
     ].join('');
   }
