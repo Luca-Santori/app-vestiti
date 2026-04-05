@@ -30,6 +30,14 @@ if not exist "node_modules" (
     echo.
 )
 
+REM Libera la porta 3000 se occupata da un vecchio processo
+echo  Controllo porta 3000...
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000 " ^| findstr "LISTENING" 2^>nul') do (
+    echo  Fermo processo precedente sulla porta 3000 (PID %%a)...
+    taskkill /PID %%a /F >nul 2>&1
+)
+timeout /t 1 /nobreak >nul
+
 echo  Avvio server su http://localhost:3000
 echo  Apri http://localhost:3000/index.html nel browser.
 echo  Lascia questa finestra aperta mentre usi l'app.
