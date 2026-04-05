@@ -293,4 +293,12 @@ app.listen(PORT, () => {
   }
   console.log('║   Gratuito — IDM-VTON (HuggingFace)       ║');
   console.log('╚══════════════════════════════════════════╝\n');
+}).on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n[ERRORE] La porta ${PORT} è già occupata da un altro processo.`);
+    console.error('Chiudi il vecchio server (cerca "node" nel Task Manager) e riprova.\n');
+  } else {
+    console.error('\n[ERRORE] Avvio server fallito:', err.message, '\n');
+  }
+  process.exit(1);
 });
