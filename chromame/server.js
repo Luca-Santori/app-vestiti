@@ -153,6 +153,74 @@ async function waitForResult(eventId) {
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
+/* ── Background Removal (Gradio 5.x) for accessories ── */
+
+const RMBG_SPACE = 'https://not-lain-background-removal.hf.space';
+
+async function waitForGradio5(spaceBase, endpoint, eventId) {
+  const resp = await fetch(`${spaceBase}/gradio_api/call/${endpoint}/${eventId}`);
+  if (!resp.ok) throw new Error(`SSE fallito ${resp.status}`);
+  const decoder = new TextDecoder();
+  let buf = '', lastEvent = '';
+  for await (const chunk of resp.body) {
+    buf += decoder.decode(chunk, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (line.startsWith('event: ')) { lastEvent = line.slice(7).trim(); continue; }
+      if (!line.startsWith('data: ')) continue;
+      if (lastEvent === 'error') throw new Error('Errore rimozione sfondo');
+      if (lastEvent === 'complete') {
+        let data; try { data = JSON.parse(line.slice(6)); } catch { throw new Error('Output non valido'); }
+        const img = Array.isArray(data) ? data[0] : data;
+        if (img?.url)  return img.url;
+        if (img?.path) return `${spaceBase}/gradio_api/file=${img.path}`;
+        return String(img);
+      }
+    }
+  }
+  throw new Error('Stream chiuso senza risultato');
+}
+
+app.post('/api/remove-bg',
+  (req, res, next) => { req.setTimeout(120_000); res.setTimeout(120_000); next(); },
+  upload.single('image'),
+  async (req, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: 'Immagine richiesta' });
+      const buf  = req.file.buffer;
+      const mime = req.file.mimetype || 'image/jpeg';
+
+      console.log('\n→ Rimozione sfondo accessorio...');
+      const fd = new FormData();
+      fd.append('files', new File([buf], 'garment.jpg', { type: mime }));
+      const upResp = await fetch(`${RMBG_SPACE}/upload`, { method: 'POST', body: fd });
+      if (!upResp.ok) throw new Error('Upload fallito: ' + upResp.status);
+      const [path] = await upResp.json();
+
+      const callResp = await fetch(`${RMBG_SPACE}/gradio_api/call/image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: [{ path, meta: { _type: 'gradio.FileData' } }] })
+      });
+      if (!callResp.ok) throw new Error('Call fallita: ' + callResp.status);
+      const { event_id } = await callResp.json();
+
+      const resultUrl = await waitForGradio5(RMBG_SPACE, 'image', event_id);
+      console.log('  ✓ Sfondo rimosso:', resultUrl);
+
+      // Scarica e ritorna come data URL per evitare problemi CORS
+      const imgResp = await fetch(resultUrl);
+      const imgBuf  = Buffer.from(await imgResp.arrayBuffer());
+      res.json({ success: true, resultUrl: `data:image/png;base64,${imgBuf.toString('base64')}` });
+
+    } catch (err) {
+      console.error('Errore bg removal:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
+);
+
 app.post('/api/tryon',
   (req, res, next) => { req.setTimeout(320_000); res.setTimeout(320_000); next(); },
   upload.fields([{ name: 'person', maxCount: 1 }, { name: 'garment', maxCount: 1 }]),

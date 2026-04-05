@@ -25,8 +25,14 @@ async function checkServer() {
 
 /* ── Pipeline principale ────────────────────────────── */
 
+var ACCESSOR_TYPES = ['acc_hat','acc_glasses','acc_scarf','acc_necklace','acc_earring','acc_belt','acc_bag'];
+
 async function runTryon() {
-  var category    = document.getElementById('tryon-category').value;
+  var category = document.getElementById('tryon-category').value;
+
+  if (ACCESSOR_TYPES.indexOf(category) !== -1) {
+    return runTryonAccessory(category);
+  }
   var description = (document.getElementById('tryon-desc').value || '').trim() || 'a garment';
   var totalSteps  = 4;
 
@@ -91,6 +97,104 @@ async function runTryon() {
   setLog('tryon', 'Prova completata ✓');
 }
 
+/* ── Accessori (bg removal + canvas overlay) ─────────── */
+
+async function runTryonAccessory(category) {
+  var totalSteps = 3;
+  initProgress('tryon', totalSteps);
+
+  // STEP 1 — Verifica server
+  setStep('tryon', 1, totalSteps);
+  setLog('tryon', 'Connessione al server AI…');
+  var serverOk = await checkServer();
+  if (!serverOk) {
+    document.getElementById('tryon-progress').classList.remove('active');
+    renderTryonError(null);
+    return;
+  }
+  setLog('tryon', 'Server connesso ✓');
+  await wait(200);
+
+  // STEP 2 — Rimuovi sfondo dall'accessorio
+  setStep('tryon', 2, totalSteps);
+  setLog('tryon', 'Rimozione sfondo accessorio con AI… (5–15 sec)');
+
+  var garmentCanvas = document.getElementById('tryon-garment-canvas');
+  var garmentBlob   = await canvasToBlob(garmentCanvas);
+  var fd = new FormData();
+  fd.append('image', garmentBlob, 'garment.jpg');
+
+  var resp = await fetch(SERVER + '/api/remove-bg', { method: 'POST', body: fd });
+  if (!resp.ok) {
+    var err = await resp.json().catch(function() { return {}; });
+    throw new Error(err.error || 'Errore rimozione sfondo');
+  }
+  var bgData = await resp.json();
+  if (!bgData.success) throw new Error(bgData.error || 'Rimozione sfondo fallita');
+  setLog('tryon', 'Sfondo rimosso ✓');
+  await wait(200);
+
+  // STEP 3 — Compositing canvas
+  setStep('tryon', 3, totalSteps);
+  setLog('tryon', 'Compositing accessorio sulla foto…');
+
+  var personCanvas = document.getElementById('tryon-person-canvas');
+  var resultUrl    = await compositeAccessory(personCanvas, bgData.resultUrl, category);
+
+  setLog('tryon', 'Pronto ✓');
+  await wait(200);
+
+  renderTryonResults(resultUrl, category, document.getElementById('tryon-desc').value || category);
+  document.getElementById('tryon-progress').classList.remove('active');
+  setLog('tryon', 'Prova completata ✓');
+}
+
+/* posizioni relative rispetto all'altezza dell'immagine */
+var ACC_PLACEMENT = {
+  acc_hat:      { yRel: 0.01, xRel: 0.5, wRel: 0.55, anchor: 'top' },
+  acc_glasses:  { yRel: 0.20, xRel: 0.5, wRel: 0.38, anchor: 'center' },
+  acc_scarf:    { yRel: 0.22, xRel: 0.5, wRel: 0.60, anchor: 'center' },
+  acc_necklace: { yRel: 0.27, xRel: 0.5, wRel: 0.35, anchor: 'center' },
+  acc_earring:  { yRel: 0.20, xRel: 0.5, wRel: 0.55, anchor: 'center' },
+  acc_belt:     { yRel: 0.50, xRel: 0.5, wRel: 0.65, anchor: 'center' },
+  acc_bag:      { yRel: 0.55, xRel: 0.75, wRel: 0.35, anchor: 'center' }
+};
+
+function compositeAccessory(personCanvas, accDataUrl, category) {
+  return new Promise(function(resolve, reject) {
+    var out   = document.createElement('canvas');
+    out.width  = personCanvas.width;
+    out.height = personCanvas.height;
+    var ctx = out.getContext('2d');
+
+    // Disegna persona
+    ctx.drawImage(personCanvas, 0, 0);
+
+    // Carica accessorio trasparente
+    var accImg = new Image();
+    accImg.onload = function() {
+      var p  = ACC_PLACEMENT[category] || ACC_PLACEMENT['acc_hat'];
+      var W  = out.width;
+      var H  = out.height;
+
+      var accW = Math.round(W * p.wRel);
+      var accH = Math.round(accImg.naturalHeight * (accW / accImg.naturalWidth));
+      var x    = Math.round(W * p.xRel - accW / 2);
+      var y;
+      if (p.anchor === 'top') {
+        y = Math.round(H * p.yRel);
+      } else {
+        y = Math.round(H * p.yRel - accH / 2);
+      }
+
+      ctx.drawImage(accImg, x, y, accW, accH);
+      resolve(out.toDataURL('image/jpeg', 0.92));
+    };
+    accImg.onerror = function() { reject(new Error('Caricamento accessorio fallito')); };
+    accImg.src = accDataUrl;
+  });
+}
+
 /* ── Helpers ────────────────────────────────────────── */
 
 function canvasToBlob(canvas) {
@@ -132,7 +236,11 @@ function renderTryonError(msg) {
 }
 
 function renderTryonResults(resultUrl, category, description) {
-  var labels = { upper_body: 'Parte superiore', lower_body: 'Parte inferiore', dresses: 'Abito intero' };
+  var labels = {
+    upper_body: 'Parte superiore', lower_body: 'Parte inferiore', dresses: 'Abito intero',
+    acc_hat: 'Cappello', acc_glasses: 'Occhiali', acc_scarf: 'Sciarpa',
+    acc_necklace: 'Collana', acc_earring: 'Orecchini', acc_belt: 'Cintura', acc_bag: 'Borsa'
+  };
   var el = document.getElementById('tryon-results');
   el.innerHTML = [
     '<div style="text-align:center;">',
