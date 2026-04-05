@@ -41,28 +41,33 @@ app.post('/api/tryon',
       console.log(`\n→ Try-On | categoria: ${category} | "${description}"`);
       console.log('  Invio a IDM-VTON (Replicate)...');
 
-      // IDM-VTON — https://replicate.com/cuuupid/idm-vton
-      const output = await replicate.run('cuuupid/idm-vton', {
-        input: {
-          human_img:    personUri,
-          garm_img:     garmentUri,
-          garment_des:  description,
-          category:     category,      // 'upper_body' | 'lower_body' | 'dresses'
-          is_checked:       true,      // auto-masking
-          is_checked_crop:  false,
-          denoise_steps:    30,
-          seed:             42
+      // IDM-VTON con version hash obbligatorio per i modelli community
+      const output = await replicate.run(
+        'cuuupid/idm-vton:0513734a452173b8173e907e3a59d19a36266e55b48528559432bd21c7d7e985',
+        {
+          input: {
+            human_img:        personUri,
+            garm_img:         garmentUri,
+            garment_des:      description,
+            category:         category,   // 'upper_body' | 'lower_body' | 'dresses'
+            is_checked:       true,
+            is_checked_crop:  false,
+            denoise_steps:    30,
+            seed:             42
+          }
         }
-      });
+      );
 
-      // output → array: [masked_person_img, try_on_result_img]
-      const result = Array.isArray(output)
-        ? (output[1] ?? output[0])
-        : output;
-
-      const resultUrl = typeof result === 'object' && result.url
-        ? (await result.url()).toString()
-        : result.toString();
+      // In replicate v1.x il risultato è un FileOutput con .url() sincrono
+      let resultUrl;
+      if (output && typeof output.url === 'function') {
+        resultUrl = output.url().toString();
+      } else if (Array.isArray(output)) {
+        const item = output[1] ?? output[0];
+        resultUrl = (item && typeof item.url === 'function') ? item.url().toString() : String(item);
+      } else {
+        resultUrl = String(output);
+      }
 
       console.log('  ✓ Risultato:', resultUrl);
       res.json({ success: true, resultUrl });

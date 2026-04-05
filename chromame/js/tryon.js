@@ -75,7 +75,12 @@ async function runTryon() {
   var resp = await fetch(SERVER + '/api/tryon', { method: 'POST', body: fd });
   if (!resp.ok) {
     var errJson = await resp.json().catch(function() { return {}; });
-    throw new Error(errJson.error || 'Errore server ' + resp.status);
+    var msg = errJson.error || 'Errore server ' + resp.status;
+    // Messaggio user-friendly per il rate limit
+    if (msg.includes('429') || msg.includes('throttled') || msg.includes('rate limit') || msg.includes('Too Many')) {
+      throw new Error('RATE_LIMIT');
+    }
+    throw new Error(msg);
   }
   var data = await resp.json();
   if (!data.success || !data.resultUrl) throw new Error('Risposta non valida dal server');
@@ -100,22 +105,39 @@ function canvasToBlob(canvas) {
 
 /* ── Render ─────────────────────────────────────────── */
 
-function renderTryonError() {
+function renderTryonError(isRateLimit) {
   var el = document.getElementById('tryon-results');
-  el.innerHTML = [
-    '<div class="tip-card full-width" style="text-align:center;">',
-    '<strong>⚠ Server non avviato</strong>',
-    '<p class="mt-8 text-sm">Il Virtual Try-On AI richiede il server locale. Segui questi passi:</p>',
-    '<ol class="text-sm" style="text-align:left;margin-top:14px;padding-left:22px;line-height:2;">',
-    '<li>Apri la cartella <strong>chromame</strong></li>',
-    '<li>Copia <code>.env.example</code> → <code>.env</code></li>',
-    '<li>Inserisci il tuo token: <code>REPLICATE_API_TOKEN=r8_...</code><br>',
-    '<span class="text-xs text-muted">Token gratuito → <strong>replicate.com/account/api-tokens</strong></span></li>',
-    '<li>Fai doppio click su <strong>start.bat</strong></li>',
-    '<li>Torna qui e riprova</li>',
-    '</ol>',
-    '</div>'
-  ].join('');
+  if (isRateLimit) {
+    el.innerHTML = [
+      '<div class="tip-card full-width" style="text-align:center;">',
+      '<strong>⚠ Limite richieste Replicate (gratuito)</strong>',
+      '<p class="mt-8 text-sm">Il tuo account gratuito ha un limite di 1 richiesta alla volta.</p>',
+      '<p class="mt-8 text-sm">Per usare IDM-VTON senza limiti devi aggiungere un metodo di pagamento su Replicate.<br>',
+      '<strong>Il modello costa circa $0.08 a prova</strong> (circa 7 centesimi).</p>',
+      '<div style="margin-top:16px;">',
+      '<a href="https://replicate.com/account/billing" target="_blank" ',
+      'style="display:inline-block;padding:10px 24px;background:var(--rose);color:#fff;border-radius:10px;text-decoration:none;font-weight:500;">',
+      'Aggiungi metodo di pagamento →</a>',
+      '</div>',
+      '<p class="mt-8 text-xs text-muted">Oppure aspetta ~30 secondi e riprova (il limite si resetta ogni minuto)</p>',
+      '</div>'
+    ].join('');
+  } else {
+    el.innerHTML = [
+      '<div class="tip-card full-width" style="text-align:center;">',
+      '<strong>⚠ Server non avviato</strong>',
+      '<p class="mt-8 text-sm">Il Virtual Try-On AI richiede il server locale. Segui questi passi:</p>',
+      '<ol class="text-sm" style="text-align:left;margin-top:14px;padding-left:22px;line-height:2;">',
+      '<li>Apri la cartella <strong>chromame</strong></li>',
+      '<li>Copia <code>.env.example</code> → <code>.env</code></li>',
+      '<li>Inserisci il tuo token: <code>REPLICATE_API_TOKEN=r8_...</code><br>',
+      '<span class="text-xs text-muted">Token gratuito → <strong>replicate.com/account/api-tokens</strong></span></li>',
+      '<li>Fai doppio click su <strong>start.bat</strong></li>',
+      '<li>Torna qui e riprova</li>',
+      '</ol>',
+      '</div>'
+    ].join('');
+  }
   el.classList.add('visible');
 }
 
@@ -151,5 +173,6 @@ function renderTryonResults(resultUrl, category, description) {
 }
 
 CM.runTryon = runTryon;
+CM.renderTryonError = renderTryonError;
 
 })();

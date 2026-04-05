@@ -144,8 +144,9 @@ document.getElementById('tryon-btn').addEventListener('click', async () => {
   try {
     await CM.runTryon();
   } catch (err) {
-    const logEl = document.getElementById('tryon-log');
-    if (logEl) logEl.textContent = '❌ Errore durante la prova: ' + err.message;
+    document.getElementById('tryon-progress').classList.remove('active');
+    var isRateLimit = err.message === 'RATE_LIMIT';
+    CM.renderTryonError(isRateLimit);
     console.error(err);
   }
   btn.disabled = false;
