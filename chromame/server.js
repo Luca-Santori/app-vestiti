@@ -234,7 +234,7 @@ app.post('/api/tryon',
       const garmentMime = req.files.garment[0].mimetype || 'image/jpeg';
       const description = req.body.garmentDesc || 'a garment';
 
-      console.log(`\n→ Try-On OOTDiffusion | "${description}"`);
+      console.log(`\n→ Try-On IDM-VTON | "${description}"`);
 
       // Retry automatico fino a 3 volte
       let resultUrl, lastErr;
@@ -244,14 +244,14 @@ app.post('/api/tryon',
             console.log(`  Tentativo ${attempt}/3 tra 15 sec...`);
             await new Promise(r => setTimeout(r, 15000));
           }
-          console.log(`  [1/3] Upload immagini su OOTDiffusion... (tentativo ${attempt})`);
+          console.log(`  [1/3] Upload immagini su IDM-VTON... (tentativo ${attempt})`);
           const [personPath, garmentPath] = await Promise.all([
             uploadImage(personBuf, personMime, 'person.jpg'),
             uploadImage(garmentBuf, garmentMime, 'garment.jpg')
           ]);
           console.log('  Upload OK ✓');
 
-          console.log('  [2/3] Submit a OOTDiffusion...');
+          console.log('  [2/3] Submit a IDM-VTON...');
           const eventId = await submitPrediction(personPath, garmentPath, description);
           console.log(`  In coda — event_id: ${eventId}`);
 

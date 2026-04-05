@@ -107,29 +107,22 @@ async function runTryon() {
     await wait(400);
   }
 
-  // ── Percorso browser-side (RMBG-1.4 + MediaPipe Pose) ──
+  // ── Percorso browser-side (canvas threshold + MediaPipe Pose) ──
   setStep('tryon', 3, totalSteps);
-  setLog('tryon', 'Rimozione sfondo capo (RMBG-1.4 open source)…');
-  await wait(80);
+  setLog('tryon', 'Rimozione sfondo capo…');
+  await wait(50);
 
   var personCanvas  = document.getElementById('tryon-person-canvas');
   var garmentCanvas = document.getElementById('tryon-garment-canvas');
 
-  var garmentDataUrl;
-  try {
-    garmentDataUrl = await CM.removeBackgroundBrowser(garmentCanvas, function(msg) {
-      setLog('tryon', msg);
-    });
-  } catch (e) {
-    // Fallback: usa l'immagine del capo così com'è (senza rimozione sfondo)
-    garmentDataUrl = garmentCanvas.toDataURL('image/jpeg', 0.95);
-  }
+  // Rimozione sfondo istantanea (<5ms): campiona bordi → threshold adattivo
+  var garmentDataUrl = CM.removeBgInstant(garmentCanvas);
 
-  setLog('tryon', 'Sfondo capo rimosso ✓');
-  await wait(100);
+  setLog('tryon', 'Sfondo rimosso ✓');
+  await wait(80);
 
   setStep('tryon', 4, totalSteps);
-  setLog('tryon', 'Posizionamento con MediaPipe Pose (33 landmark corporei)…');
+  setLog('tryon', 'Rilevamento corpo con MediaPipe Pose…');
   await wait(80);
 
   var garmentType = GARMENT_TYPE[category] || 'upper';
@@ -147,42 +140,24 @@ async function runTryon() {
 /* ── Accessori (RMBG-1.4 browser-side + MediaPipe overlay) ─ */
 
 async function runTryonAccessory(category) {
-  var totalSteps = 3;
+  var totalSteps = 2;
   initProgress('tryon', totalSteps);
 
-  // STEP 1 — Carica modello RMBG nel browser (zero server)
+  // STEP 1 — Rimozione sfondo istantanea (canvas threshold, <5ms)
   setStep('tryon', 1, totalSteps);
-  setLog('tryon', 'Inizializzazione modello RMBG-1.4 open source…');
-  await wait(100);
+  setLog('tryon', 'Rimozione sfondo accessorio…');
+  await wait(50);
 
-  // STEP 2 — Rimuovi sfondo con RMBG-1.4 (ONNX, 100% locale nel browser)
-  setStep('tryon', 2, totalSteps);
   var garmentCanvas = document.getElementById('tryon-garment-canvas');
-  var accDataUrl;
-
-  try {
-    accDataUrl = await CM.removeBackgroundBrowser(garmentCanvas, function(msg) {
-      setLog('tryon', msg);
-    });
-  } catch (e) {
-    // Fallback al server se Transformers.js non disponibile
-    setLog('tryon', 'Fallback al server per rimozione sfondo…');
-    var garmentBlob = await canvasToBlob(garmentCanvas);
-    var fd = new FormData();
-    fd.append('image', garmentBlob, 'garment.jpg');
-    var resp = await fetch(SERVER + '/api/remove-bg', { method: 'POST', body: fd });
-    if (!resp.ok) throw new Error('Rimozione sfondo fallita: ' + resp.status);
-    var bgData = await resp.json();
-    if (!bgData.success) throw new Error(bgData.error || 'Rimozione sfondo fallita');
-    accDataUrl = bgData.resultUrl;
-  }
+  var accDataUrl = CM.removeBgInstant(garmentCanvas);
 
   setLog('tryon', 'Sfondo rimosso ✓');
-  await wait(100);
+  await wait(80);
 
-  // STEP 3 — Compositing con MediaPipe landmark detection
-  setStep('tryon', 3, totalSteps);
-  setLog('tryon', 'Posizionamento AI con MediaPipe (468 punti viso + 33 corporei)…');
+  // STEP 2 — Compositing con MediaPipe FaceMesh + Pose
+  setStep('tryon', 2, totalSteps);
+  setLog('tryon', 'Posizionamento preciso con MediaPipe…');
+  await wait(80);
 
   var personCanvas = document.getElementById('tryon-person-canvas');
   var resultUrl = await CM.compositeAccessoryLandmarks(personCanvas, accDataUrl, category);
@@ -190,7 +165,7 @@ async function runTryonAccessory(category) {
   setLog('tryon', 'Pronto ✓');
   await wait(200);
 
-  renderTryonResults(resultUrl, category, document.getElementById('tryon-desc').value || category);
+  renderTryonResults(resultUrl, category, document.getElementById('tryon-desc').value || category, true);
   document.getElementById('tryon-progress').classList.remove('active');
   setLog('tryon', 'Prova completata ✓');
 }

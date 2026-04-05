@@ -1,75 +1,64 @@
 /* ═══════════════════════════════════════════════════════
-   ChromaMe — Accessory Placement via MediaPipe Landmarks
+   ChromaMe — Accessory & Garment Placement
    FaceMesh (468 punti) + Pose (33 punti) → compositing
-   Background Removal: RMBG-1.4 via Transformers.js (browser, ONNX, MIT)
+   Background Removal: canvas threshold istantaneo (zero download)
    ═══════════════════════════════════════════════════════ */
 
 (function () {
 
-/* ── RMBG-1.4 in-browser (Transformers.js + ONNX WASM) ─ */
+/* ── Rimozione sfondo istantanea via canvas ─────────────
+   Funziona per qualsiasi colore di sfondo uniforme:
+   bianco, grigio, viola, azzurro ecc. (tipico e-commerce)
+   < 5ms, zero network, zero dipendenze.
+   ──────────────────────────────────────────────────── */
 
-var _rmbgModel = null;
-var _rmbgProc  = null;
-var _RawImage  = null;
-var _rmbgLoading = false;
+CM.removeBgInstant = function (sourceCanvas) {
+  var W = sourceCanvas.width;
+  var H = sourceCanvas.height;
 
-CM.removeBackgroundBrowser = async function (canvas, onProgress) {
-  // Lazy-load transformers.js dal CDN via dynamic import (funziona su localhost:3000)
-  if (!_rmbgModel) {
-    if (_rmbgLoading) {
-      // Aspetta che il caricamento in corso finisca
-      while (_rmbgLoading) await new Promise(function(r){ setTimeout(r, 200); });
-    } else {
-      _rmbgLoading = true;
-      try {
-        if (onProgress) onProgress('Caricamento modello RMBG-1.4… (prima volta: ~175 MB, poi è cachato)');
-        var tf = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.esm.min.js');
-        tf.env.allowLocalModels = false;
-        _RawImage = tf.RawImage;
+  var tmp = document.createElement('canvas');
+  tmp.width = W; tmp.height = H;
+  var ctx = tmp.getContext('2d');
+  ctx.drawImage(sourceCanvas, 0, 0);
 
-        _rmbgProc = await tf.AutoProcessor.from_pretrained('briaai/RMBG-1.4', {
-          config: {
-            do_normalize: true, do_pad: false, do_rescale: true, do_resize: true,
-            image_mean: [0.5, 0.5, 0.5], image_std: [1, 1, 1],
-            resample: 2, rescale_factor: 0.00392156862745098,
-            size: { width: 1024, height: 1024 }
-          }
-        });
+  var img = ctx.getImageData(0, 0, W, H);
+  var d   = img.data;
 
-        _rmbgModel = await tf.AutoModel.from_pretrained('briaai/RMBG-1.4', {
-          config: { model_type: 'custom' }
-        });
-        if (onProgress) onProgress('Modello RMBG-1.4 pronto ✓');
-      } finally {
-        _rmbgLoading = false;
-      }
+  // 1. Campiona i bordi (top+bottom row, left+right col) per rilevare il colore di sfondo
+  var rSum = 0, gSum = 0, bSum = 0, cnt = 0;
+  var addSample = function(x, y) {
+    var i = (y * W + x) * 4;
+    rSum += d[i]; gSum += d[i+1]; bSum += d[i+2]; cnt++;
+  };
+  for (var x = 0; x < W; x++) { addSample(x, 0); addSample(x, H-1); }
+  for (var y = 1; y < H-1; y++) { addSample(0, y); addSample(W-1, y); }
+  var bgR = rSum/cnt, bgG = gSum/cnt, bgB = bSum/cnt;
+
+  // 2. Rimuovi pixel vicini al colore di sfondo con soglia adattiva
+  //    threshold base: 50 su scala 0-441 (max dist euclidea tra colori)
+  var thr = 55;
+  for (var i = 0; i < d.length; i += 4) {
+    var dr = d[i]   - bgR;
+    var dg = d[i+1] - bgG;
+    var db = d[i+2] - bgB;
+    var dist = Math.sqrt(dr*dr + dg*dg + db*db);
+    if (dist < thr) {
+      d[i+3] = 0; // trasparente
+    } else if (dist < thr * 2.2) {
+      // Bordo morbido (anti-aliasing)
+      d[i+3] = Math.round(255 * (dist - thr) / (thr * 1.2));
     }
+    // altrimenti alpha rimane 255 (opaco)
   }
 
-  // Converti canvas in RawImage
-  var dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-  var image   = await _RawImage.fromURL(dataUrl);
+  ctx.putImageData(img, 0, 0);
+  return tmp.toDataURL('image/png');
+};
 
-  // Inferenza ONNX nel browser
-  var processed = await _rmbgProc(image);
-  var result    = await _rmbgModel({ input: processed.pixel_values });
-
-  // Crea maschera alpha e applica all'immagine originale
-  var mask = await _RawImage.fromTensor(result.output[0].mul(255).to('uint8'))
-                            .resize(image.width, image.height);
-
-  var out    = document.createElement('canvas');
-  out.width  = image.width;
-  out.height = image.height;
-  var ctx    = out.getContext('2d');
-  ctx.drawImage(image.toCanvas(), 0, 0);
-
-  var pixelData = ctx.getImageData(0, 0, image.width, image.height);
-  for (var i = 0; i < mask.data.length; i++) {
-    pixelData.data[4 * i + 3] = mask.data[i]; // alpha = maschera
-  }
-  ctx.putImageData(pixelData, 0, 0);
-  return out.toDataURL('image/png');
+// Alias per compatibilità con vecchio codice che usava removeBackgroundBrowser
+CM.removeBackgroundBrowser = function (canvas, onProgress) {
+  if (onProgress) onProgress('Rimozione sfondo istantanea…');
+  return Promise.resolve(CM.removeBgInstant(canvas));
 };
 
 /* ── FaceMesh landmarks utili ────────────────────────
