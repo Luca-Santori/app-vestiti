@@ -97,18 +97,19 @@ async function waitForResult(eventId) {
           throw new Error(errMsg);
         }
 
-        // Gradio 4.x — event: complete → data è un array diretto [masked, result]
+        // Gradio 4.x — event: complete → data = [result_img, masked_img]
+        // data[0] = risultato finale con il vestito indossato
+        // data[1] = preview della maschera (NON vogliamo questo)
         if (lastEvent === 'complete') {
           clearTimeout(tid);
           let data;
           try { data = JSON.parse(rawData); } catch { throw new Error('Output non valido'); }
-          const img = Array.isArray(data) ? (data[data.length - 1] ?? data[0]) : data;
+          console.log('  complete data:', JSON.stringify(data).slice(0, 300));
+          const img = Array.isArray(data) ? data[0] : data;
           if (!img) throw new Error('Nessuna immagine nell\'output');
           if (img?.url)  return img.url;
           if (img?.path) return `${SPACE_URL}/file=${img.path}`;
           if (typeof img === 'string' && img.startsWith('http')) return img;
-          // Gradio può restituire un oggetto con "url" come stringa
-          console.log('  img object:', JSON.stringify(img).slice(0, 200));
           return String(img);
         }
 
