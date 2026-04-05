@@ -1,9 +1,76 @@
 /* ═══════════════════════════════════════════════════════
    ChromaMe — Accessory Placement via MediaPipe Landmarks
    FaceMesh (468 punti) + Pose (33 punti) → compositing
+   Background Removal: RMBG-1.4 via Transformers.js (browser, ONNX, MIT)
    ═══════════════════════════════════════════════════════ */
 
 (function () {
+
+/* ── RMBG-1.4 in-browser (Transformers.js + ONNX WASM) ─ */
+
+var _rmbgModel = null;
+var _rmbgProc  = null;
+var _RawImage  = null;
+var _rmbgLoading = false;
+
+CM.removeBackgroundBrowser = async function (canvas, onProgress) {
+  // Lazy-load transformers.js dal CDN via dynamic import (funziona su localhost:3000)
+  if (!_rmbgModel) {
+    if (_rmbgLoading) {
+      // Aspetta che il caricamento in corso finisca
+      while (_rmbgLoading) await new Promise(function(r){ setTimeout(r, 200); });
+    } else {
+      _rmbgLoading = true;
+      try {
+        if (onProgress) onProgress('Caricamento modello RMBG-1.4… (prima volta: ~175 MB, poi è cachato)');
+        var tf = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.esm.min.js');
+        tf.env.allowLocalModels = false;
+        _RawImage = tf.RawImage;
+
+        _rmbgProc = await tf.AutoProcessor.from_pretrained('briaai/RMBG-1.4', {
+          config: {
+            do_normalize: true, do_pad: false, do_rescale: true, do_resize: true,
+            image_mean: [0.5, 0.5, 0.5], image_std: [1, 1, 1],
+            resample: 2, rescale_factor: 0.00392156862745098,
+            size: { width: 1024, height: 1024 }
+          }
+        });
+
+        _rmbgModel = await tf.AutoModel.from_pretrained('briaai/RMBG-1.4', {
+          config: { model_type: 'custom' }
+        });
+        if (onProgress) onProgress('Modello RMBG-1.4 pronto ✓');
+      } finally {
+        _rmbgLoading = false;
+      }
+    }
+  }
+
+  // Converti canvas in RawImage
+  var dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+  var image   = await _RawImage.fromURL(dataUrl);
+
+  // Inferenza ONNX nel browser
+  var processed = await _rmbgProc(image);
+  var result    = await _rmbgModel({ input: processed.pixel_values });
+
+  // Crea maschera alpha e applica all'immagine originale
+  var mask = await _RawImage.fromTensor(result.output[0].mul(255).to('uint8'))
+                            .resize(image.width, image.height);
+
+  var out    = document.createElement('canvas');
+  out.width  = image.width;
+  out.height = image.height;
+  var ctx    = out.getContext('2d');
+  ctx.drawImage(image.toCanvas(), 0, 0);
+
+  var pixelData = ctx.getImageData(0, 0, image.width, image.height);
+  for (var i = 0; i < mask.data.length; i++) {
+    pixelData.data[4 * i + 3] = mask.data[i]; // alpha = maschera
+  }
+  ctx.putImageData(pixelData, 0, 0);
+  return out.toDataURL('image/png');
+};
 
 /* ── FaceMesh landmarks utili ────────────────────────
    Vedi: https://github.com/google/mediapipe/blob/master/docs/solutions/face_mesh.md

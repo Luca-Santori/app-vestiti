@@ -97,54 +97,48 @@ async function runTryon() {
   setLog('tryon', 'Prova completata ✓');
 }
 
-/* ── Accessori (bg removal + canvas overlay) ─────────── */
+/* ── Accessori (RMBG-1.4 browser-side + MediaPipe overlay) ─ */
 
 async function runTryonAccessory(category) {
   var totalSteps = 3;
   initProgress('tryon', totalSteps);
 
-  // STEP 1 — Verifica server
+  // STEP 1 — Carica modello RMBG nel browser (zero server)
   setStep('tryon', 1, totalSteps);
-  setLog('tryon', 'Connessione al server AI…');
-  var serverOk = await checkServer();
-  if (!serverOk) {
-    document.getElementById('tryon-progress').classList.remove('active');
-    renderTryonError(null);
-    return;
-  }
-  setLog('tryon', 'Server connesso ✓');
-  await wait(200);
+  setLog('tryon', 'Inizializzazione modello RMBG-1.4 open source…');
+  await wait(100);
 
-  // STEP 2 — Rimuovi sfondo dall'accessorio
+  // STEP 2 — Rimuovi sfondo con RMBG-1.4 (ONNX, 100% locale nel browser)
   setStep('tryon', 2, totalSteps);
-  setLog('tryon', 'Rimozione sfondo accessorio con AI… (5–15 sec)');
-
   var garmentCanvas = document.getElementById('tryon-garment-canvas');
-  var garmentBlob   = await canvasToBlob(garmentCanvas);
-  var fd = new FormData();
-  fd.append('image', garmentBlob, 'garment.jpg');
+  var accDataUrl;
 
-  var resp = await fetch(SERVER + '/api/remove-bg', { method: 'POST', body: fd });
-  if (!resp.ok) {
-    var err = await resp.json().catch(function() { return {}; });
-    throw new Error(err.error || 'Errore rimozione sfondo');
+  try {
+    accDataUrl = await CM.removeBackgroundBrowser(garmentCanvas, function(msg) {
+      setLog('tryon', msg);
+    });
+  } catch (e) {
+    // Fallback al server se Transformers.js non disponibile
+    setLog('tryon', 'Fallback al server per rimozione sfondo…');
+    var garmentBlob = await canvasToBlob(garmentCanvas);
+    var fd = new FormData();
+    fd.append('image', garmentBlob, 'garment.jpg');
+    var resp = await fetch(SERVER + '/api/remove-bg', { method: 'POST', body: fd });
+    if (!resp.ok) throw new Error('Rimozione sfondo fallita: ' + resp.status);
+    var bgData = await resp.json();
+    if (!bgData.success) throw new Error(bgData.error || 'Rimozione sfondo fallita');
+    accDataUrl = bgData.resultUrl;
   }
-  var bgData = await resp.json();
-  if (!bgData.success) throw new Error(bgData.error || 'Rimozione sfondo fallita');
-  setLog('tryon', 'Sfondo rimosso ✓');
-  await wait(200);
 
-  // STEP 3 — Compositing con landmark AI
+  setLog('tryon', 'Sfondo rimosso ✓');
+  await wait(100);
+
+  // STEP 3 — Compositing con MediaPipe landmark detection
   setStep('tryon', 3, totalSteps);
-  setLog('tryon', 'Posizionamento AI con MediaPipe (rilevamento punti corporei)…');
+  setLog('tryon', 'Posizionamento AI con MediaPipe (468 punti viso + 33 corporei)…');
 
   var personCanvas = document.getElementById('tryon-person-canvas');
-  var resultUrl;
-  if (typeof CM.compositeAccessoryLandmarks === 'function') {
-    resultUrl = await CM.compositeAccessoryLandmarks(personCanvas, bgData.resultUrl, category);
-  } else {
-    resultUrl = await compositeAccessory(personCanvas, bgData.resultUrl, category);
-  }
+  var resultUrl = await CM.compositeAccessoryLandmarks(personCanvas, accDataUrl, category);
 
   setLog('tryon', 'Pronto ✓');
   await wait(200);
