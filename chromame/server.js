@@ -92,11 +92,12 @@ async function waitForResult(eventId) {
         // Gradio 4.x — event: error
         if (lastEvent === 'error') {
           let errMsg = rawData;
+          console.log('  SSE error raw data:', rawData.slice(0, 200));
           try {
             const parsed = JSON.parse(rawData);
-            errMsg = (parsed && parsed.error) ? parsed.error : (parsed !== null ? String(parsed) : 'HuggingFace ha restituito un errore. Riprova tra qualche secondo.');
+            errMsg = (parsed && parsed.error) ? parsed.error : (parsed !== null ? String(parsed) : 'Errore dal modello');
           } catch {}
-          if (!errMsg || errMsg === 'null') errMsg = 'HuggingFace ha restituito un errore. Riprova tra qualche secondo.';
+          if (!errMsg || errMsg === 'null' || errMsg === 'undefined') errMsg = 'Errore temporaneo HuggingFace. Riprova.';
           clearTimeout(tid);
           throw new Error(errMsg);
         }
@@ -237,20 +238,36 @@ app.post('/api/tryon',
       const description = req.body.garmentDesc || 'a garment';
 
       console.log(`\n→ Try-On | "${description}"`);
-      console.log('  [1/3] Upload immagini su HuggingFace...');
-      const [personPath, garmentPath] = await Promise.all([
-        uploadImage(personBuf, personMime, 'person.jpg'),
-        uploadImage(garmentBuf, garmentMime, 'garment.jpg')
-      ]);
-      console.log('  Upload OK ✓');
 
-      console.log('  [2/3] Submit a IDM-VTON...');
-      const eventId = await submitPrediction(personPath, garmentPath, description);
-      console.log(`  In coda — event_id: ${eventId}`);
+      // Retry automatico fino a 3 volte (HF può dare errori temporanei)
+      let resultUrl, lastErr;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          if (attempt > 1) {
+            console.log(`  Tentativo ${attempt}/3 tra 5 sec...`);
+            await new Promise(r => setTimeout(r, 5000));
+          }
+          console.log(`  [1/3] Upload immagini su HuggingFace... (tentativo ${attempt})`);
+          const [personPath, garmentPath] = await Promise.all([
+            uploadImage(personBuf, personMime, 'person.jpg'),
+            uploadImage(garmentBuf, garmentMime, 'garment.jpg')
+          ]);
+          console.log('  Upload OK ✓');
 
-      console.log('  [3/3] Attesa risultato (1–3 min)...');
-      const resultUrl = await waitForResult(eventId);
-      console.log('  ✓ Risultato:', resultUrl);
+          console.log('  [2/3] Submit a IDM-VTON...');
+          const eventId = await submitPrediction(personPath, garmentPath, description);
+          console.log(`  In coda — event_id: ${eventId}`);
+
+          console.log('  [3/3] Attesa risultato (1–3 min)...');
+          resultUrl = await waitForResult(eventId);
+          console.log('  ✓ Risultato:', resultUrl);
+          break; // successo
+        } catch (e) {
+          lastErr = e;
+          console.error(`  Tentativo ${attempt} fallito:`, e.message);
+        }
+      }
+      if (!resultUrl) throw lastErr;
 
       res.json({ success: true, resultUrl });
 
