@@ -134,12 +134,17 @@ async function runTryonAccessory(category) {
   setLog('tryon', 'Sfondo rimosso ✓');
   await wait(200);
 
-  // STEP 3 — Compositing canvas
+  // STEP 3 — Compositing con landmark AI
   setStep('tryon', 3, totalSteps);
-  setLog('tryon', 'Compositing accessorio sulla foto…');
+  setLog('tryon', 'Posizionamento AI con MediaPipe (rilevamento punti corporei)…');
 
   var personCanvas = document.getElementById('tryon-person-canvas');
-  var resultUrl    = await compositeAccessory(personCanvas, bgData.resultUrl, category);
+  var resultUrl;
+  if (typeof CM.compositeAccessoryLandmarks === 'function') {
+    resultUrl = await CM.compositeAccessoryLandmarks(personCanvas, bgData.resultUrl, category);
+  } else {
+    resultUrl = await compositeAccessory(personCanvas, bgData.resultUrl, category);
+  }
 
   setLog('tryon', 'Pronto ✓');
   await wait(200);
