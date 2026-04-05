@@ -9,9 +9,9 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 
 app.use(cors());
 app.use(express.static('.'));
 
-/* ── HuggingFace Gradio Space (gratuito, no API key) ── */
+/* ── OOTDiffusion (HuggingFace, gratuito, no API key) ── */
 
-const SPACE_URL = 'https://yisol-idm-vton.hf.space';
+const SPACE_URL = 'https://levihsu-ootdiffusion.hf.space';
 
 async function uploadImage(buffer, mime, filename) {
   const fd = new FormData();
@@ -22,41 +22,31 @@ async function uploadImage(buffer, mime, filename) {
   return path;
 }
 
-async function submitPrediction(personPath, garmentPath, description) {
-  const personFileData = {
-    path: personPath,
+async function submitPrediction(personPath, garmentPath) {
+  const makeFileData = (path, name) => ({
+    path,
     meta: { _type: 'gradio.FileData' },
-    orig_name: 'person.jpg',
-    url: `${SPACE_URL}/file=${personPath}`
-  };
-  const garmentFileData = {
-    path: garmentPath,
-    meta: { _type: 'gradio.FileData' },
-    orig_name: 'garment.jpg',
-    url: `${SPACE_URL}/file=${garmentPath}`
-  };
+    orig_name: name,
+    url: `${SPACE_URL}/file=${path}`
+  });
 
-  const resp = await fetch(`${SPACE_URL}/call/tryon`, {
+  const resp = await fetch(`${SPACE_URL}/call/process_hd`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       data: [
-        // param 1: ImageEditor → { background, layers, composite }
-        { background: personFileData, layers: [], composite: null },
-        // param 2: garment image (FileData)
-        garmentFileData,
-        // param 3-7: testo + flags + steps + seed
-        description,
-        true,   // is_checked (auto-mask)
-        false,  // is_checked_crop
-        30,     // denoise_steps
-        42      // seed
+        makeFileData(personPath, 'person.jpg'),  // Model (persona)
+        makeFileData(garmentPath, 'garment.jpg'), // Garment (capo)
+        1,   // Images (quante generare)
+        20,  // Steps
+        2,   // Guidance scale
+        -1   // Seed (-1 = random)
       ]
     })
   });
   if (!resp.ok) throw new Error(`Submit fallito: ${resp.status} ${await resp.text()}`);
-  const { event_id } = await resp.json();
-  return event_id;
+  const body = await resp.json();
+  return body.event_id;
 }
 
 async function waitForResult(eventId) {
@@ -64,7 +54,7 @@ async function waitForResult(eventId) {
   const tid  = setTimeout(() => ctrl.abort(), 300_000); // 5 min
 
   try {
-    const resp = await fetch(`${SPACE_URL}/call/tryon/${eventId}`, {
+    const resp = await fetch(`${SPACE_URL}/call/process_hd/${eventId}`, {
       signal: ctrl.signal
     });
     if (!resp.ok) throw new Error(`SSE fallito: ${resp.status}`);
@@ -102,20 +92,22 @@ async function waitForResult(eventId) {
           throw new Error(errMsg);
         }
 
-        // Gradio 4.x — event: complete → data = [result_img, masked_img]
-        // data[0] = risultato finale con il vestito indossato
-        // data[1] = preview della maschera (NON vogliamo questo)
+        // Gradio 4.x — event: complete → data = [Gallery]
+        // OOTDiffusion Gallery: [ [{image:{url,path}}, ...] ]
         if (lastEvent === 'complete') {
           clearTimeout(tid);
           let data;
           try { data = JSON.parse(rawData); } catch { throw new Error('Output non valido'); }
           console.log('  complete data:', JSON.stringify(data).slice(0, 300));
-          const img = Array.isArray(data) ? data[0] : data;
-          if (!img) throw new Error('Nessuna immagine nell\'output');
-          if (img?.url)  return img.url;
-          if (img?.path) return `${SPACE_URL}/file=${img.path}`;
-          if (typeof img === 'string' && img.startsWith('http')) return img;
-          return String(img);
+          // data[0] = array della gallery
+          const gallery = Array.isArray(data) ? (Array.isArray(data[0]) ? data[0] : data) : [data];
+          const item = gallery[0];
+          if (!item) throw new Error('Gallery vuota');
+          if (item?.image?.url) return item.image.url;
+          if (item?.image?.path) return `${SPACE_URL}/file=${item.image.path}`;
+          if (item?.url) return item.url;
+          if (item?.path) return `${SPACE_URL}/file=${item.path}`;
+          return String(item);
         }
 
         // Gradio 3.x — data: {"msg": "process_completed", "output": {...}}
@@ -130,14 +122,17 @@ async function waitForResult(eventId) {
         }
         if (msg.msg === 'process_completed') {
           clearTimeout(tid);
+          // OOTDiffusion returns Gallery: [{image:{url,path}}, ...]
           const data = msg.output?.data ?? (Array.isArray(msg.output) ? msg.output : null);
           if (!data) throw new Error('Output vuoto');
-          const img = data[data.length - 1] ?? data[0];
-          if (!img) throw new Error('Nessuna immagine');
-          if (img?.url)  return img.url;
-          if (img?.path) return `${SPACE_URL}/file=${img.path}`;
-          if (typeof img === 'string' && img.startsWith('http')) return img;
-          return String(img);
+          const gallery = Array.isArray(data[0]) ? data[0] : data;
+          const item = gallery[0];
+          if (!item) throw new Error('Nessuna immagine');
+          if (item?.image?.url) return item.image.url;
+          if (item?.image?.path) return `${SPACE_URL}/file=${item.image.path}`;
+          if (item?.url) return item.url;
+          if (item?.path) return `${SPACE_URL}/file=${item.path}`;
+          return String(item);
         }
       }
     }
@@ -241,9 +236,9 @@ app.post('/api/tryon',
       const garmentMime = req.files.garment[0].mimetype || 'image/jpeg';
       const description = req.body.garmentDesc || 'a garment';
 
-      console.log(`\n→ Try-On | "${description}"`);
+      console.log(`\n→ Try-On OOTDiffusion | "${description}"`);
 
-      // Retry automatico fino a 3 volte (HF può dare errori temporanei)
+      // Retry automatico fino a 3 volte
       let resultUrl, lastErr;
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
@@ -251,21 +246,21 @@ app.post('/api/tryon',
             console.log(`  Tentativo ${attempt}/3 tra 15 sec...`);
             await new Promise(r => setTimeout(r, 15000));
           }
-          console.log(`  [1/3] Upload immagini su HuggingFace... (tentativo ${attempt})`);
+          console.log(`  [1/3] Upload immagini su OOTDiffusion... (tentativo ${attempt})`);
           const [personPath, garmentPath] = await Promise.all([
             uploadImage(personBuf, personMime, 'person.jpg'),
             uploadImage(garmentBuf, garmentMime, 'garment.jpg')
           ]);
           console.log('  Upload OK ✓');
 
-          console.log('  [2/3] Submit a IDM-VTON...');
-          const eventId = await submitPrediction(personPath, garmentPath, description);
+          console.log('  [2/3] Submit a OOTDiffusion...');
+          const eventId = await submitPrediction(personPath, garmentPath);
           console.log(`  In coda — event_id: ${eventId}`);
 
-          console.log('  [3/3] Attesa risultato (1–3 min)...');
+          console.log('  [3/3] Attesa risultato (30–90 sec)...');
           resultUrl = await waitForResult(eventId);
           console.log('  ✓ Risultato:', resultUrl);
-          break; // successo
+          break;
         } catch (e) {
           lastErr = e;
           console.error(`  Tentativo ${attempt} fallito:`, e.message);
@@ -276,7 +271,7 @@ app.post('/api/tryon',
       res.json({ success: true, resultUrl });
 
     } catch (err) {
-      console.error('Errore IDM-VTON:', err.message);
+      console.error('Errore OOTDiffusion:', err.message);
       res.status(500).json({ success: false, error: err.message });
     }
   }
@@ -291,6 +286,6 @@ app.listen(PORT, () => {
   console.log(`║   http://localhost:${PORT}                  ║`);
   console.log('║                                          ║');
   console.log('║   Apri: http://localhost:3000/index.html ║');
-  console.log('║   Gratuito — HuggingFace IDM-VTON        ║');
+  console.log('║   Gratuito — OOTDiffusion (HuggingFace)  ║');
   console.log('╚══════════════════════════════════════════╝\n');
 });
