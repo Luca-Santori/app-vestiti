@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════
    ChromaMe — Modulo 3: Virtual Try-On (AI — IDM-VTON)
-   Chiama il server locale → Replicate IDM-VTON
+   Chiama il server locale → HuggingFace IDM-VTON (gratuito)
    ═══════════════════════════════════════════════════════ */
 
 (function() {
@@ -110,16 +110,9 @@ function renderTryonError(isRateLimit) {
   if (isRateLimit) {
     el.innerHTML = [
       '<div class="tip-card full-width" style="text-align:center;">',
-      '<strong>⚠ Limite richieste Replicate (gratuito)</strong>',
-      '<p class="mt-8 text-sm">Il tuo account gratuito ha un limite di 1 richiesta alla volta.</p>',
-      '<p class="mt-8 text-sm">Per usare IDM-VTON senza limiti devi aggiungere un metodo di pagamento su Replicate.<br>',
-      '<strong>Il modello costa circa $0.08 a prova</strong> (circa 7 centesimi).</p>',
-      '<div style="margin-top:16px;">',
-      '<a href="https://replicate.com/account/billing" target="_blank" ',
-      'style="display:inline-block;padding:10px 24px;background:var(--rose);color:#fff;border-radius:10px;text-decoration:none;font-weight:500;">',
-      'Aggiungi metodo di pagamento →</a>',
-      '</div>',
-      '<p class="mt-8 text-xs text-muted">Oppure aspetta ~30 secondi e riprova (il limite si resetta ogni minuto)</p>',
+      '<strong>⚠ Errore HuggingFace IDM-VTON</strong>',
+      '<p class="mt-8 text-sm">Il modello ha restituito un errore. Riprova tra qualche secondo.</p>',
+      '<p class="mt-8 text-xs text-muted">Se il problema persiste lo Space HuggingFace potrebbe essere in manutenzione.</p>',
       '</div>'
     ].join('');
   } else {
@@ -128,13 +121,11 @@ function renderTryonError(isRateLimit) {
       '<strong>⚠ Server non avviato</strong>',
       '<p class="mt-8 text-sm">Il Virtual Try-On AI richiede il server locale. Segui questi passi:</p>',
       '<ol class="text-sm" style="text-align:left;margin-top:14px;padding-left:22px;line-height:2;">',
-      '<li>Apri la cartella <strong>chromame</strong></li>',
-      '<li>Copia <code>.env.example</code> → <code>.env</code></li>',
-      '<li>Inserisci il tuo token: <code>REPLICATE_API_TOKEN=r8_...</code><br>',
-      '<span class="text-xs text-muted">Token gratuito → <strong>replicate.com/account/api-tokens</strong></span></li>',
-      '<li>Fai doppio click su <strong>start.bat</strong></li>',
-      '<li>Torna qui e riprova</li>',
+      '<li>Fai doppio click su <strong>start.bat</strong> nella cartella chromame</li>',
+      '<li>Lascia la finestra aperta</li>',
+      '<li>Apri <strong>http://localhost:3000/index.html</strong> nel browser (non da file://)</li>',
       '</ol>',
+      '<p class="mt-8 text-xs text-muted">Completamente gratuito — nessun API key richiesto.</p>',
       '</div>'
     ].join('');
   }
